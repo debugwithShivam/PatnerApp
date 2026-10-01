@@ -1,56 +1,15 @@
-# Welcome to your Expo app 👋
+# AIMEDIX Partner app
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This Expo app follows the partner screens in `D:\11.pdf`: role-specific sign-in for one account type (pharmacy, laboratory, or doctor), a five-tab dashboard, patient list, messages, analytics and account/profile settings. Pharmacy partners can manage their medicine catalogue, prescription requests and orders; laboratories can manage tests, bookings and secure report URLs; doctors can manage consultations.
 
-## Get started
+## Connect to the website
 
-1. Install dependencies
+The app uses the existing provider API on the AIMEDIX MEDS website. Copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_BASE_URL` to the same website origin used by `CustomerApp` (for example `https://amedixmeds.com`). The partner API is at `/api/v1/providers/`; the app uses `/api/v1/medical/config` to load the service areas for registration. Keep database passwords and website secrets on the server; the mobile app stores only the signed-in provider token in secure device storage.
 
-   ```bash
-   npm install
-   ```
+Partner registration uses a tap-to-pin premises map in place of typed latitude/longitude. `app.config.js` reads `GOOGLE_MAPS_API_KEY` from the ignored `.env.local` file and injects it into the Android native map configuration. Before publishing, restrict this key in Google Cloud to Maps SDK for Android and the app package `com.aimedixmeds.partnerapp` plus its release signing SHA-1. Build a new Android development/production app after changing native map configuration; Expo Go does not include this native map module. iOS uses Apple Maps through Expo Maps.
 
-2. Start the app
+New partner registration is submitted to the shared website database with `pending` status. Website administrators review the business licence and service area in the admin panel. A partner can sign in after approval; the backend limits every API request by the authenticated partner role and ownership.
 
-   ```bash
-   npx expo start
-   ```
+## Run
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Install dependencies with `npm install`, then run `npm start`. For a phone or Android emulator, use a website/API host address reachable from that device instead of `localhost`.
