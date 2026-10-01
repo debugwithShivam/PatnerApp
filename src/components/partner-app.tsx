@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppleMaps, GoogleMaps } from 'expo-maps';
+import { LocationMap, type LocationPin } from '@/components/location-map';
 import { clearSession, partnerApi, persistSession, readSession } from '@/services/partner-api';
 
 type Role = 'pharmacy' | 'lab' | 'doctor';
@@ -39,11 +39,13 @@ export function PartnerApp() {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [appearance, setAppearance] = useState('Use device setting');
-  const [modal, setModal] = useState<'appearance' | 'item' | 'quote' | 'location' | null>(null);
-  const [mapPin, setMapPin] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [modal, setModal] = useState<'appearance' | 'item' | 'quote' | 'location' | 'prescription' | null>(null);
+  const [mapPin, setMapPin] = useState<LocationPin | null>(null);
   const [itemForm, setItemForm] = useState({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', code: '', preparation: '', report_hours: '24' });
   const [quoteForm, setQuoteForm] = useState({ medicine_name: '', pack: 'strip', quantity: '1', unit_price: '', delivery_fee: '', note: '' });
   const [quoteTask, setQuoteTask] = useState<AnyRow | null>(null);
+  const [prescriptionTask, setPrescriptionTask] = useState<AnyRow | null>(null);
+  const [prescriptionDraft, setPrescriptionDraft] = useState('');
   const [reportUrl, setReportUrl] = useState('');
 
   const loadWorkspace = useCallback(async (selectedRole?: Role) => {
@@ -76,6 +78,12 @@ export function PartnerApp() {
     })();
     return () => { mounted = false; };
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    if (!provider || role !== 'pharmacy') return;
+    const refresh = setInterval(() => { void loadWorkspace('pharmacy'); }, 20000);
+    return () => clearInterval(refresh);
+  }, [provider?.id, role, loadWorkspace]);
 
   const openRegistration = async () => {
     setAuthMode('register');
@@ -179,6 +187,28 @@ export function PartnerApp() {
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not send the medicine quote.'); }
   };
 
+  const saveConsultationPrescription = async () => {
+    if (!prescriptionTask) return;
+    const items = prescriptionDraft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+      const [name, strength = '', dosage = '', frequency = '', duration = '', instructions = ''] = line.split('|').map((part) => part.trim());
+      return { name, strength, dosage, frequency, duration, instructions };
+    });
+    if (!items.length) { setNotice('Enter at least one medicine, one per line.'); return; }
+    setBusy(true);
+    try {
+      const result = await partnerApi<any>(`/api/v1/providers/consultations/${prescriptionTask.id}/prescription`, { method: 'POST', body: { items } });
+      setModal(null); setPrescriptionTask(null); setPrescriptionDraft(''); setNotice(result.message ?? 'Prescription saved and patient notified.'); await loadWorkspace();
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Prescription could not be saved.'); }
+    finally { setBusy(false); }
+  };
+
+  const markPickupReady = async (task: AnyRow) => {
+    try {
+      const result = await partnerApi<any>(`/api/v1/providers/prescription-requests/${task.id}/pickup-status`, { method: 'POST', body: { status: 'ready_for_pickup' } });
+      setNotice(result.message ?? 'Patient notified that medicines are ready.'); await loadWorkspace();
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not update prescription status.'); }
+  };
+
   const loadConversations = async () => {
     try { const result = await partnerApi<any>('/api/v1/providers/medical-chat'); setWorkspace((old: any) => ({ ...old, conversations: result.data ?? [] })); }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load patient messages.'); }
@@ -239,6 +269,7 @@ export function PartnerApp() {
     return <View key={task.id} style={s.taskCard}><View style={s.taskTop}><Text style={s.taskTag}>{type.toUpperCase()}</Text><Text style={s.statusChip}>{titleCase(status)}</Text></View><Text style={s.taskName}>{task.customer_name || 'Patient'}</Text><Text style={s.taskDetails}>{task.customer_phone || ''}  ·  {task.test_name || task.scheduled_at || task.created_at || ''}</Text>{task.reason ? <Text style={s.taskBody}>{task.reason}</Text> : null}
       {role === 'lab' && status === 'processing' ? <>{input('Secure report URL','report',reportUrl,setReportUrl,{ autoCapitalize: 'none', keyboardType: 'url' })}</> : null}
       {nextStatus ? smallAction(nextStatus, advance) : null}
+      {role === 'doctor' && ['in_progress','completed'].includes(status) ? smallAction(task.prescription_items?.length ? 'Edit medicine prescription' : 'Write medicine prescription', () => { setPrescriptionTask(task); setPrescriptionDraft((task.prescription_items ?? []).map((item: AnyRow) => [item.name,item.strength,item.dosage,item.frequency,item.duration,item.instructions].join(' | ')).join('\n')); setModal('prescription'); }) : null}
     </View>;
   };
 
@@ -251,7 +282,7 @@ export function PartnerApp() {
   const medicineCard = (item: AnyRow) => <View key={item.id} style={s.listRow}><View style={s.rowIconBox}><Text style={s.rowIconText}>Rx</Text></View><View style={{ flex: 1 }}><Text style={s.rowTitle}>{item.name}</Text><Text style={s.rowSub}>{fmtMoney(item.discount_price || item.price)}  ·  Stock {item.stock}  ·  {titleCase(item.medicine_type)}</Text></View>{smallAction('Archive', () => void archiveItem(item), true)}</View>;
   const labTestCard = (item: AnyRow) => <View key={item.id} style={s.listRow}><View style={s.rowIconBox}><Text style={s.rowIconText}>⌕</Text></View><View style={{ flex: 1 }}><Text style={s.rowTitle}>{item.name}</Text><Text style={s.rowSub}>{fmtMoney(item.price)}  ·  {item.code || 'Test'}  ·  {item.status || 'active'}</Text></View>{smallAction('Archive', () => void archiveItem(item), true)}</View>;
 
-  const pharmacyRequests = () => tasks.map((task) => <View key={task.id} style={s.taskCard}><View style={s.taskTop}><Text style={s.taskTag}>PRESCRIPTION #{task.id}</Text><Text style={s.statusChip}>{titleCase(task.status)}</Text></View><Text style={s.taskName}>{task.customer_name || 'Patient'} · {task.customer_phone || ''}</Text><Text style={s.taskDetails}>{task.created_at || ''}  ·  {task.file_name || 'Prescription uploaded'}</Text>{task.note ? <Text style={s.taskBody}>{task.note}</Text> : null}{task.quote_total ? <Text style={s.quoteValue}>Current quote · {fmtMoney(task.quote_total)}</Text> : null}{['assigned','quoted'].includes(task.status) && smallAction(task.quote_total ? 'Update quote' : 'Prepare quote', () => { setQuoteTask(task); setModal('quote'); })}</View>);
+  const pharmacyRequests = () => tasks.map((task) => <View key={task.id} style={s.taskCard}><View style={s.taskTop}><Text style={s.taskTag}>PRESCRIPTION #{task.id}</Text><Text style={s.statusChip}>{titleCase(task.status)}</Text></View><Text style={s.taskName}>{task.customer_name || 'Patient'} · {task.customer_phone || ''}</Text><Text style={s.taskDetails}>{task.created_at || ''}  ·  {task.prescription_source === 'doctor' ? `Pickup code ${task.pickup_code || ''}` : task.file_name || 'Prescription uploaded'}</Text>{task.medicine_list?.map((item: AnyRow, index: number) => <Text key={`${task.id}-medicine-${index}`} style={s.taskBody}>{item.name}{item.strength ? ` · ${item.strength}` : ''}{item.dosage ? ` · ${item.dosage}` : ''}{item.frequency ? ` · ${item.frequency}` : ''}{item.duration ? ` · ${item.duration}` : ''}{item.instructions ? ` · ${item.instructions}` : ''}</Text>)}{task.note ? <Text style={s.taskBody}>{task.note}</Text> : null}{task.quote_total ? <Text style={s.quoteValue}>Current quote · {fmtMoney(task.quote_total)}</Text> : null}{task.prescription_source === 'doctor' && task.status === 'assigned' ? smallAction('Approve & mark ready for pickup', () => void markPickupReady(task)) : null}{task.prescription_source !== 'doctor' && ['assigned','quoted'].includes(task.status) && smallAction(task.quote_total ? 'Update quote' : 'Prepare quote', () => { setQuoteTask(task); setModal('quote'); })}</View>);
 
   const dashboardScreen = () => <ScrollView contentContainerStyle={s.pageContent} refreshControl={undefined}>
     {providerBanner()}
@@ -283,18 +314,14 @@ export function PartnerApp() {
   const content = useMemo(() => ({ Dashboard: dashboardScreen, Patients: patientsScreen, Messages: messagesScreen, Analytics: analyticsScreen, Account: accountScreen }[tab]()), [tab, workspace, provider, conversation, messages, draft, reportUrl, products, labTests, orders, patients, tasks, analytics, notice, role, refreshing, appearance]);
 
   const modalContent = () => {
+    if (modal === 'prescription') return <><Text style={s.modalTitle}>Doctor prescription</Text><Text style={s.formHint}>Enter one medicine per line: name | strength | dosage | frequency | duration | instructions.</Text><TextInput value={prescriptionDraft} onChangeText={setPrescriptionDraft} placeholder="Medicine name | strength | dosage | frequency | duration | instructions" placeholderTextColor={C.placeholder} multiline textAlignVertical="top" style={[s.input,s.inputMultiline,{ minHeight:150, marginTop:8 }]} />{smallAction(busy ? 'Saving…' : 'Save prescription & notify patient', () => void saveConsultationPrescription())}</>;
     if (modal === 'location') {
       const selectedZone = zones.find((zone) => Number(zone.id) === zoneId);
       const zoneLat = Number(selectedZone?.latitude || 0);
       const zoneLng = Number(selectedZone?.longitude || 0);
       const center = mapPin ?? { latitude: zoneLat || 20.5937, longitude: zoneLng || 78.9629 };
-      const marker = mapPin ? [{ coordinates: mapPin, title: 'Your premises' }] : [];
-      const onMapClick = (event: { coordinates: { latitude?: number; longitude?: number } }) => {
-        const latitude = Number(event.coordinates.latitude); const longitude = Number(event.coordinates.longitude);
-        if (Number.isFinite(latitude) && Number.isFinite(longitude)) setMapPin({ latitude, longitude });
-      };
       return <><Text style={s.modalTitle}>Pin your premises</Text><Text style={s.formHint}>Move the map to the exact pharmacy, laboratory or clinic location, then tap to place a pin.</Text>
-        {Platform.OS === 'android' ? <GoogleMaps.View style={s.mapView} cameraPosition={{ coordinates: center, zoom: mapPin ? 16 : 11 }} markers={marker} onMapClick={onMapClick} /> : Platform.OS === 'ios' ? <AppleMaps.View style={s.mapView} cameraPosition={{ coordinates: center, zoom: mapPin ? 16 : 11 }} markers={marker} onMapClick={onMapClick} /> : <View style={[s.mapView,s.mapWebNotice]}><Text style={s.emptyTitle}>Map pin selection is available in the Android and iOS app.</Text></View>}
+        <LocationMap center={center} selected={mapPin} onSelect={setMapPin} />
         {mapPin ? <Text style={s.selectedCoordinates}>Selected pin · {mapPin.latitude.toFixed(6)}, {mapPin.longitude.toFixed(6)}</Text> : <Text style={s.selectedCoordinates}>No premises pin selected yet</Text>}
         <Pressable disabled={!mapPin} onPress={() => setModal(null)} style={[s.primaryButton,!mapPin && s.buttonDisabled]}><Text style={s.primaryButtonText}>Use this location</Text></Pressable>
       </>;
@@ -335,6 +362,6 @@ const s = StyleSheet.create({
   accountOption:{ minHeight:52, flexDirection:'row', alignItems:'center', gap:10, backgroundColor:C.card, paddingHorizontal:11, marginBottom:7, borderRadius:11 },optionGlyph:{ color:C.teal, fontSize:17, width:22, textAlign:'center' },profileFields:{ backgroundColor:C.card, padding:12, borderRadius:13 },signoutButton:{ minHeight:36, alignItems:'center', justifyContent:'center', borderRadius:20, borderColor:'#3c4b4d', borderWidth:1, marginTop:13 },signoutText:{ color:'#d9e5e4', fontSize:9, fontWeight:'800' },
   tabBar:{ height:57, flexDirection:'row', justifyContent:'space-around', alignItems:'center', borderTopWidth:StyleSheet.hairlineWidth, borderColor:'#222c2e', backgroundColor:'#0b1112', paddingHorizontal:3 },tabButton:{ width:'20%', alignItems:'center', justifyContent:'center', gap:3, position:'relative' },tabGlyph:{ color:'#768284', fontSize:16 },tabSelected:{ color:C.teal, fontWeight:'900' },tabLabel:{ color:'#7f8a8b', fontSize:7 },unreadDot:{ position:'absolute', width:6, height:6, backgroundColor:'#ed8f60', borderRadius:4, top:0, right:20 },
   chatTime:{ color:C.muted, fontSize:7 },chatCard:{ backgroundColor:C.card, borderRadius:14, padding:12, marginTop:9, height:440 },messageList:{ flex:1, marginVertical:10 },messageBubble:{ alignSelf:'flex-start', backgroundColor:'#202a2c', borderRadius:11, padding:9, maxWidth:'85%', marginBottom:7 },messageBubbleMine:{ alignSelf:'flex-end', backgroundColor:'#115b54' },messageText:{ color:C.white, fontSize:9, lineHeight:14 },messageTime:{ color:'#8f9e9e', fontSize:7, marginTop:4 },composer:{ flexDirection:'row', alignItems:'center', gap:8 },composerInput:{ flex:1, backgroundColor:'#20292b', color:C.white, borderRadius:10, minHeight:36, paddingHorizontal:10, fontSize:9 },sendButton:{ width:35, height:35, backgroundColor:C.teal, borderRadius:11, alignItems:'center', justifyContent:'center' },sendText:{ color:'#041312', fontSize:17, fontWeight:'900' },
-  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,.65)', justifyContent:'flex-end' },modalDock:{ width:'100%', maxWidth:480, alignSelf:'center' },modalCard:{ maxHeight:'90%', backgroundColor:'#111819', borderTopLeftRadius:22, borderTopRightRadius:22, padding:15, paddingBottom:22, borderWidth:1, borderColor:'#263235' },modalHandle:{ alignSelf:'center', width:37, height:4, borderRadius:4, backgroundColor:'#475355', marginBottom:14 },modalTitle:{ color:C.white, fontSize:15, fontWeight:'900', marginBottom:8 },modalCancel:{ alignItems:'center', paddingTop:10 },modalCancelText:{ color:C.muted, fontSize:9, fontWeight:'800' },appearanceChoice:{ flexDirection:'row', alignItems:'center', gap:10, minHeight:40 },selectionMark:{ color:C.muted, fontSize:15 },selectionMarkOn:{ color:C.teal },mapSelectButton:{ minHeight:55, flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:10, borderRadius:11, backgroundColor:'#192526', borderWidth:1, borderColor:'#28645d', marginBottom:9 },mapPinIcon:{ color:C.teal, fontSize:22 },mapSelectTitle:{ color:C.white, fontSize:9, fontWeight:'900' },mapSelectSub:{ color:C.muted, fontSize:8, marginTop:4 },seeMap:{ color:C.teal, fontSize:8, fontWeight:'900' },mapView:{ height:370, width:'100%', borderRadius:12, overflow:'hidden', marginBottom:8, backgroundColor:'#1d292a' },mapWebNotice:{ alignItems:'center', justifyContent:'center', padding:20 },selectedCoordinates:{ color:C.mint, fontSize:8, textAlign:'center', marginVertical:5 },buttonDisabled:{ opacity:0.45 },
+  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,.65)', justifyContent:'flex-end' },modalDock:{ width:'100%', maxWidth:480, alignSelf:'center' },modalCard:{ maxHeight:'90%', backgroundColor:'#111819', borderTopLeftRadius:22, borderTopRightRadius:22, padding:15, paddingBottom:22, borderWidth:1, borderColor:'#263235' },modalHandle:{ alignSelf:'center', width:37, height:4, borderRadius:4, backgroundColor:'#475355', marginBottom:14 },modalTitle:{ color:C.white, fontSize:15, fontWeight:'900', marginBottom:8 },modalCancel:{ alignItems:'center', paddingTop:10 },modalCancelText:{ color:C.muted, fontSize:9, fontWeight:'800' },appearanceChoice:{ flexDirection:'row', alignItems:'center', gap:10, minHeight:40 },selectionMark:{ color:C.muted, fontSize:15 },selectionMarkOn:{ color:C.teal },mapSelectButton:{ minHeight:55, flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:10, borderRadius:11, backgroundColor:'#192526', borderWidth:1, borderColor:'#28645d', marginBottom:9 },mapPinIcon:{ color:C.teal, fontSize:22 },mapSelectTitle:{ color:C.white, fontSize:9, fontWeight:'900' },mapSelectSub:{ color:C.muted, fontSize:8, marginTop:4 },seeMap:{ color:C.teal, fontSize:8, fontWeight:'900' },selectedCoordinates:{ color:C.mint, fontSize:8, textAlign:'center', marginVertical:5 },buttonDisabled:{ opacity:0.45 },
   authNoticeText:{ color:C.muted },zoneError:{ color:C.muted }
 });

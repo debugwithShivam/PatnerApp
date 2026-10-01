@@ -35,13 +35,7 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store",
-      [
-        "expo-maps",
-        {
-          "requestLocationPermission": false
-        }
-      ]
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
