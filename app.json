@@ -1,38 +1,36 @@
 {
   "expo": {
-    "name": "AIMEDIX Partner",
+    "name": "AIMEDIX MEDS MEDIX Patner",
     "slug": "aimedix-partner",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/appicon.png",
     "scheme": "aimedixpartner",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.aimedixmeds.partnerapp",
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/appicon.png"
     },
     "android": {
       "package": "com.aimedixmeds.partnerapp",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/appicon.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/appicon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/appicon-splash.png",
+          "imageWidth": 300
         }
       ],
       "expo-secure-store"

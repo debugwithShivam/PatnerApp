@@ -1,6 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LocationMap, type LocationPin } from '@/components/location-map';
 import { clearSession, partnerApi, persistSession, readSession } from '@/services/partner-api';
 
@@ -49,6 +51,7 @@ export function PartnerApp() {
   const [meetingTask, setMeetingTask] = useState<AnyRow | null>(null);
   const [meetingUrl, setMeetingUrl] = useState('');
   const [reportUrl, setReportUrl] = useState('');
+  const [reportAsset, setReportAsset] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
 
   const loadWorkspace = useCallback(async (selectedRole?: Role) => {
     const activeRole = selectedRole ?? role;
@@ -156,8 +159,18 @@ export function PartnerApp() {
     const target = next[current];
     if (!target) { setNotice('There is no further status change for this appointment.'); return; }
     if (kind === 'lab' && target === 'completed') {
-      if (!reportUrl.trim()) { setNotice('Add the secure lab report URL below to finish this booking.'); return; }
-      try { await partnerApi(`/api/v1/providers/lab-bookings/${task.id}/report`, { method: 'POST', body: { report_url: reportUrl.trim(), provider_note: '' } }); setReportUrl(''); setNotice('Lab report sent to the patient.'); await loadWorkspace(); }
+      if (!reportUrl.trim() && !reportAsset) { setNotice('Choose a report PDF/image or enter a secure report URL.'); return; }
+      try {
+        const body: AnyRow = { provider_note: '' };
+        if (reportAsset) {
+          let base64 = reportAsset.base64 ?? '';
+          if (!base64) base64 = await FileSystem.readAsStringAsync(reportAsset.uri, { encoding: 'base64' });
+          const mime = reportAsset.mimeType || (reportAsset.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+          body.report_base64 = `data:${mime};base64,${base64}`; body.file_name = reportAsset.name;
+        } else body.report_url = reportUrl.trim();
+        await partnerApi(`/api/v1/providers/lab-bookings/${task.id}/report`, { method: 'POST', body });
+        setReportUrl(''); setReportAsset(null); setNotice('Lab report sent to the patient.'); await loadWorkspace();
+      }
       catch (error) { setNotice(error instanceof Error ? error.message : 'Report could not be submitted.'); }
       return;
     }
@@ -288,7 +301,7 @@ export function PartnerApp() {
     const nextStatus = role === 'lab' ? ({ requested:'Accept', accepted:'Collect sample', sample_collected:'Start processing', processing:'Upload report' } as AnyRow)[status] : ({ requested:'Confirm appointment', confirmed:'Start consultation', in_progress:'Complete consultation' } as AnyRow)[status];
     const advance = role === 'lab' && status === 'processing' ? async () => await advanceAppointment(task) : () => void advanceAppointment(task);
     return <View key={task.id} style={s.taskCard}><View style={s.taskTop}><Text style={s.taskTag}>{type.toUpperCase()}</Text><Text style={s.statusChip}>{titleCase(status)}</Text></View><Text style={s.taskName}>{task.customer_name || 'Patient'}</Text><Text style={s.taskDetails}>{task.customer_phone || ''}  Â·  {task.test_name || task.scheduled_at || task.created_at || ''}</Text>{task.reason ? <Text style={s.taskBody}>{task.reason}</Text> : null}
-      {role === 'lab' && status === 'processing' ? <>{input('Secure report URL','report',reportUrl,setReportUrl,{ autoCapitalize: 'none', keyboardType: 'url' })}</> : null}
+      {role === 'lab' && status === 'processing' ? <>{input('Secure report URL (optional)','report',reportUrl,setReportUrl,{ autoCapitalize: 'none', keyboardType: 'url' })}{smallAction(reportAsset ? `Selected: ${reportAsset.name}` : 'Choose report PDF or image', async () => { try { const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true, multiple: false }); if (!result.canceled && result.assets[0]) { if (result.assets[0].size && result.assets[0].size > 10 * 1024 * 1024) { setNotice('Choose a report file up to 10 MB.'); return; } setReportAsset(result.assets[0]); setNotice(''); } } catch { setNotice('Could not open the report file picker.'); } })}</> : null}
       {nextStatus ? smallAction(nextStatus, advance) : null}
       {role === 'doctor' && ['in_progress','completed'].includes(status) ? smallAction(task.prescription_items?.length ? 'Edit medicine prescription' : 'Write medicine prescription', () => { setPrescriptionTask(task); setPrescriptionDraft((task.prescription_items ?? []).map((item: AnyRow) => [item.name,item.strength,item.dosage,item.frequency,item.duration,item.instructions].join(' | ')).join('\n')); setModal('prescription'); }) : null}
       {role === 'doctor' && ['confirmed','in_progress'].includes(status) ? smallAction(task.meeting_url ? 'Update meeting link' : 'Share meeting link', () => { setMeetingTask(task); setMeetingUrl(String(task.meeting_url ?? '')); setModal('meeting'); }) : null}
