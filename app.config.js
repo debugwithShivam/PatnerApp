@@ -25,7 +25,7 @@ module.exports = ({ config }) => {
       ...appJson.expo.extra,
       ...config.extra,
       googleMapsApiKeyConfigured: Boolean(mapsKey),
-      googleMapsAndroidEnabled: Boolean(mapsKey && process.env.GOOGLE_MAPS_ANDROID_ENABLED?.trim().toLowerCase() === 'true'),
+      googleMapsAndroidEnabled: Boolean(mapsKey),
     },
     plugins,
   };

@@ -6,7 +6,7 @@ import type { LocationMapProps } from './location-map';
 export function LocationMap({ center, selected, onSelect }: LocationMapProps) {
   const mapsEnabled = Constants.expoConfig?.extra?.googleMapsAndroidEnabled === true;
   if (!mapsEnabled) {
-    return <View style={s.frame}><Text style={s.unavailable}>Google Maps is paused in this APK to prevent a crash. Enable it after verifying the Android Maps API key and app signing restrictions.</Text></View>;
+    return <View style={s.frame}><Text style={s.unavailable}>Google Maps is unavailable because this build has no configured Android Maps API key. Rebuild with the key configured.</Text></View>;
   }
 
   const focus = selected ?? center;
