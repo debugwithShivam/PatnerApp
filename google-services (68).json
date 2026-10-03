@@ -1,0 +1,145 @@
+{
+  "project_info": {
+    "project_number": "689376234319",
+    "project_id": "aimedix-meds",
+    "storage_bucket": "aimedix-meds.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689376234319:android:60aad388ae5c996498933a",
+        "android_client_info": {
+          "package_name": "com.aimedix.medical"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "689376234319-49vku5d6phlh429df5qq762ke48ddfvs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical",
+            "certificate_hash": "3a89574918e0402ade49afc50685fdd03b33c1bf"
+          }
+        },
+        {
+          "client_id": "689376234319-567ii2cm7q0trlck2876jc2otl5t4s89.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical",
+            "certificate_hash": "92346445c50b6ac4e5f64948b3db98540d90570d"
+          }
+        },
+        {
+          "client_id": "689376234319-b5e1to2sj1elr563ptn30nv46gc0b99b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical",
+            "certificate_hash": "19ecbc0df9d688f6d6e5cf92fb28ba9cbbe0c1b8"
+          }
+        },
+        {
+          "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUsiJh9bU_xgofISUIawlLtyxecLTCb3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689376234319:android:47a533183dbdab4898933a",
+        "android_client_info": {
+          "package_name": "com.aimedix.medical.delivery"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "689376234319-ceaok9gvnoj24s41vcklj3htem21m37f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical.delivery",
+            "certificate_hash": "3a89574918e0402ade49afc50685fdd03b33c1bf"
+          }
+        },
+        {
+          "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUsiJh9bU_xgofISUIawlLtyxecLTCb3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689376234319:android:4a0749e16412456698933a",
+        "android_client_info": {
+          "package_name": "com.aimedix.medical.provider"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "689376234319-6m3noci4g30vcpc4jut3pbqdnp4mfe0b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical.provider",
+            "certificate_hash": "3a89574918e0402ade49afc50685fdd03b33c1bf"
+          }
+        },
+        {
+          "client_id": "689376234319-dupfuc4sh8r4b3ob5sqh62dvkrm6lbaj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aimedix.medical.provider",
+            "certificate_hash": "bace33c0d979e063cbb9fe846e92cafae4b10105"
+          }
+        },
+        {
+          "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUsiJh9bU_xgofISUIawlLtyxecLTCb3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "689376234319-5ur18u8cde9556lhsnkch20jhi4uef9i.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
