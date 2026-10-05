@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LocationMap, type LocationPin } from '@/components/location-map';
@@ -25,6 +25,7 @@ const titleCase = (value: any) => String(value ?? 'pending').replaceAll('_', ' '
 const clean = (value: any, fallback = 'â€”') => value === null || value === undefined || String(value).trim() === '' ? fallback : String(value);
 
 export function PartnerApp() {
+  const safeAreaInsets = useSafeAreaInsets();
   const [role, setRole] = useState<Role | null>(null);
   const [tab, setTab] = useState<Tab>('Dashboard');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -383,7 +384,7 @@ export function PartnerApp() {
       <View style={s.header}><View style={s.headerBrand}><View style={s.headerLogo}><Text style={s.headerLogoText}>A</Text></View><View><Text style={s.headerTitle}>{tab}</Text><Text style={s.headerSubtitle}>{roleName} workspace</Text></View></View><Pressable onPress={() => tab === 'Messages' ? void loadConversations() : void loadWorkspace()} style={s.refreshButton}><Text style={s.refreshGlyph}>{refreshing ? 'â—Œ' : 'âŸ³'}</Text></Pressable></View>
       {notice ? <Pressable onPress={() => setNotice('')} style={s.notice}><Text style={s.noticeText}>{notice}</Text><Text style={s.dismiss}>Ã—</Text></Pressable> : null}
       <View style={s.body}>{content}</View>
-      <View style={s.tabBar}>{tabs.map((item) => <Pressable key={item.title} onPress={() => { setTab(item.title); setNotice(''); if (item.title === 'Messages') void loadConversations(); if (item.title === 'Dashboard' || item.title === 'Patients' || item.title === 'Analytics') void loadWorkspace(); }} style={s.tabButton}><Text style={[s.tabGlyph, tab === item.title && s.tabSelected]}>{item.glyph}</Text><Text style={[s.tabLabel, tab === item.title && s.tabSelected]}>{item.title}</Text>{item.title === 'Messages' && conversations.some((c) => Number(c.unread_count) > 0) ? <View style={s.unreadDot} /> : null}</Pressable>)}</View>
+      <View style={[s.tabBar, { height: 57 + safeAreaInsets.bottom, paddingBottom: safeAreaInsets.bottom }]}>{tabs.map((item) => <Pressable key={item.title} onPress={() => { setTab(item.title); setNotice(''); if (item.title === 'Messages') void loadConversations(); if (item.title === 'Dashboard' || item.title === 'Patients' || item.title === 'Analytics') void loadWorkspace(); }} style={s.tabButton}><Text style={[s.tabGlyph, tab === item.title && s.tabSelected]}>{item.glyph}</Text><Text style={[s.tabLabel, tab === item.title && s.tabSelected]}>{item.title}</Text>{item.title === 'Messages' && conversations.some((c) => Number(c.unread_count) > 0) ? <View style={s.unreadDot} /> : null}</Pressable>)}</View>
     </>}
     <Modal transparent visible={modal !== null} animationType="slide" onRequestClose={() => setModal(null)}><Pressable style={s.modalBackdrop} onPress={() => setModal(null)}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.modalDock}><Pressable style={s.modalCard} onPress={(event) => event.stopPropagation()}><View style={s.modalHandle} /><ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>{modalContent()}</ScrollView><Pressable onPress={() => setModal(null)} style={s.modalCancel}><Text style={s.modalCancelText}>Cancel</Text></Pressable></Pressable></KeyboardAvoidingView></Pressable></Modal>
   </SafeAreaView>;
