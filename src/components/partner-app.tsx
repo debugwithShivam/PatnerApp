@@ -10,6 +10,7 @@ type Role = 'pharmacy' | 'lab' | 'doctor';
 type Tab = 'Dashboard' | 'Patients' | 'Messages' | 'Analytics' | 'Account';
 type AnyRow = Record<string, any>;
 type Zone = { id: number; name: string; city?: string; state?: string; pincode?: string; latitude?: number | string; longitude?: number | string };
+type LocationChoice = LocationPin & { address: string; city?: string; pincode?: string };
 type FormState = Record<string, string>;
 const roles: { key: Role; title: string; mark: string; detail: string }[] = [
   { key: 'pharmacy', title: 'Pharmacy', mark: 'Rx', detail: 'Manage medicines and fulfilment' },
@@ -44,6 +45,11 @@ export function PartnerApp() {
   const [appearance, setAppearance] = useState('Use device setting');
   const [modal, setModal] = useState<'appearance' | 'item' | 'quote' | 'location' | 'prescription' | 'meeting' | null>(null);
   const [mapPin, setMapPin] = useState<LocationPin | null>(null);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationChoices, setLocationChoices] = useState<LocationChoice[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState<LocationChoice | null>(null);
+  const [locationNotice, setLocationNotice] = useState('');
+  const [locationBusy, setLocationBusy] = useState(false);
   const [itemForm, setItemForm] = useState({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '', requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true, code: '', preparation: '', report_hours: '24' });
   const [quoteForm, setQuoteForm] = useState({ medicine_name: '', pack: 'strip', quantity: '1', unit_price: '', delivery_fee: '', note: '' });
   const [quoteTask, setQuoteTask] = useState<AnyRow | null>(null);
@@ -100,6 +106,45 @@ export function PartnerApp() {
       setZones(available); setZoneId(available[0]?.id ?? null);
       if (available[0]) setRegisterForm((old) => ({ ...old, city: old.city || available[0].city || '', pincode: old.pincode || available[0].pincode || '' }));
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load service areas.'); }
+  };
+
+  const searchLocations = async () => {
+    if (locationQuery.trim().length < 3) { setLocationNotice('Type at least 3 characters of an address, area, landmark, or PIN code.'); return; }
+    setLocationBusy(true); setLocationNotice('');
+    try {
+      const result = await partnerApi<{ data?: LocationChoice[] }>('/api/v1/zones/search', { method: 'POST', auth: false, body: { query: locationQuery.trim() } });
+      setLocationChoices(result.data ?? []);
+      if (!result.data?.length) setLocationNotice('No matching addresses found. Try a nearby landmark or PIN code.');
+    } catch (error) { setLocationNotice(error instanceof Error ? error.message : 'Could not search for that address.'); }
+    finally { setLocationBusy(false); }
+  };
+
+  const selectLocationPin = (pin: LocationPin) => {
+    const address = `${pin.latitude.toFixed(5)}, ${pin.longitude.toFixed(5)}`;
+    const choice = { ...pin, address };
+    setMapPin(pin); setSelectedLocation(choice); setLocationQuery(address); setLocationChoices([]);
+    setLocationNotice('Pin selected. Add this location to your premises.');
+  };
+
+  const openLocationPicker = () => {
+    setLocationQuery(selectedLocation?.address || registerForm.address_line || '');
+    setLocationChoices([]); setLocationNotice(''); setModal('location');
+  };
+
+  const applySelectedLocation = async () => {
+    if (!selectedLocation) { setLocationNotice('Search for an address or tap the map to place a pin first.'); return; }
+    setLocationBusy(true); setLocationNotice('Adding location…');
+    let details = selectedLocation;
+    try {
+      const reverse = await partnerApi<{ data?: { address?: string; pincode?: string; city?: string } }>('/api/v1/zones/reverse-geocode', {
+        method: 'POST', auth: false,
+        body: { latitude: selectedLocation.latitude, longitude: selectedLocation.longitude },
+      });
+      details = { ...selectedLocation, ...reverse.data, address: reverse.data?.address || selectedLocation.address };
+    } catch { /* Keep the searched address or coordinates if reverse lookup is unavailable. */ }
+    setMapPin({ latitude: details.latitude, longitude: details.longitude });
+    setRegisterForm((old) => ({ ...old, address_line: details.address || old.address_line, city: details.city || old.city, pincode: details.pincode || old.pincode }));
+    setSelectedLocation(details); setLocationQuery(details.address); setLocationNotice(''); setModal(null); setLocationBusy(false);
   };
 
   const submitAuth = async () => {
@@ -279,11 +324,11 @@ export function PartnerApp() {
         {input('Password (at least 8 characters)','password',registerForm.password,(value) => setRegister('password',value),{ secureTextEntry: true })}
         {input(role === 'doctor' ? 'Medical council licence number' : 'Business / facility licence number','license_number',registerForm.license_number,(value) => setRegister('license_number',value))}
         {role === 'doctor' && <>{input('Speciality','speciality',registerForm.speciality,(value) => setRegister('speciality',value))}{input('Qualification','qualification',registerForm.qualification,(value) => setRegister('qualification',value))}{input('Consultation fee (â‚¹)','consultation_fee',registerForm.consultation_fee,(value) => setRegister('consultation_fee',value),{ keyboardType: 'decimal-pad' })}</>}
-        {zones.length > 0 && <><Text style={s.inputLabel}>Service area</Text><View style={s.zonePicker}>{zones.map((zone) => <Pressable key={zone.id} onPress={() => { setZoneId(zone.id); setMapPin(null); setRegisterForm((old) => ({ ...old, city: zone.city ?? old.city, pincode: zone.pincode ?? old.pincode })); }} style={[s.zoneOption, zoneId === zone.id && s.zoneOptionOn]}><Text style={[s.zoneOptionText, zoneId === zone.id && s.zoneOptionTextOn]}>{zone.name}</Text></Pressable>)}</View></>}
+        {zones.length > 0 && <><Text style={s.inputLabel}>Service area</Text><View style={s.zonePicker}>{zones.map((zone) => <Pressable key={zone.id} onPress={() => { setZoneId(zone.id); setMapPin(null); setSelectedLocation(null); setLocationChoices([]); setLocationQuery(''); setRegisterForm((old) => ({ ...old, city: zone.city ?? old.city, pincode: zone.pincode ?? old.pincode })); }} style={[s.zoneOption, zoneId === zone.id && s.zoneOptionOn]}><Text style={[s.zoneOptionText, zoneId === zone.id && s.zoneOptionTextOn]}>{zone.name}</Text></Pressable>)}</View></>}
         {input('Street / building address','address_line',registerForm.address_line,(value) => setRegister('address_line',value))}
         {input('City','city',registerForm.city,(value) => setRegister('city',value))}
         {input('PIN code','pincode',registerForm.pincode,(value) => setRegister('pincode',value),{ keyboardType: 'number-pad' })}
-        <Text style={s.inputLabel}>Facility location</Text><Pressable onPress={() => setModal('location')} style={s.mapSelectButton}><Text style={s.mapPinIcon}>âŒ–</Text><View style={{ flex: 1 }}><Text style={s.mapSelectTitle}>{mapPin ? 'Premises pin selected' : 'Choose premises on map'}</Text><Text style={s.mapSelectSub}>{mapPin ? `${mapPin.latitude.toFixed(6)}, ${mapPin.longitude.toFixed(6)}` : 'Tap the map at your pharmacy, lab or clinic'}</Text></View><Text style={s.seeMap}>{mapPin ? 'Change' : 'Open map'}</Text></Pressable>
+        <Text style={s.inputLabel}>Facility location</Text><Pressable onPress={openLocationPicker} style={s.mapSelectButton}><Text style={s.mapPinIcon}>âŒ–</Text><View style={{ flex: 1 }}><Text style={s.mapSelectTitle}>{mapPin ? 'Premises pin selected' : 'Choose premises on map'}</Text><Text style={s.mapSelectSub}>{mapPin ? `${mapPin.latitude.toFixed(6)}, ${mapPin.longitude.toFixed(6)}` : 'Search for or tap your pharmacy, lab or clinic'}</Text></View><Text style={s.seeMap}>{mapPin ? 'Change' : 'Open map'}</Text></Pressable>
         <Text style={s.formHint}>The website checks this location against the selected service area.</Text>
         <Pressable disabled={busy} onPress={() => void submitAuth()} style={s.primaryButton}>{busy ? <ActivityIndicator color="#041312" /> : <Text style={s.primaryButtonText}>Submit for verification</Text>}</Pressable>
         <Pressable onPress={() => { setAuthMode('login'); setNotice(''); }} style={s.linkButton}><Text style={s.linkText}>Back to sign in</Text></Pressable>
@@ -356,10 +401,13 @@ export function PartnerApp() {
       const zoneLat = Number(selectedZone?.latitude || 0);
       const zoneLng = Number(selectedZone?.longitude || 0);
       const center = mapPin ?? { latitude: zoneLat || 20.5937, longitude: zoneLng || 78.9629 };
-      return <><Text style={s.modalTitle}>Pin your premises</Text><Text style={s.formHint}>Move the map to the exact pharmacy, laboratory or clinic location, then tap to place a pin.</Text>
-        <LocationMap center={center} selected={mapPin} onSelect={setMapPin} />
-        {mapPin ? <Text style={s.selectedCoordinates}>Selected pin Â· {mapPin.latitude.toFixed(6)}, {mapPin.longitude.toFixed(6)}</Text> : <Text style={s.selectedCoordinates}>No premises pin selected yet</Text>}
-        <Pressable disabled={!mapPin} onPress={() => setModal(null)} style={[s.primaryButton,!mapPin && s.buttonDisabled]}><Text style={s.primaryButtonText}>Use this location</Text></Pressable>
+      return <><Text style={s.modalTitle}>Choose your premises location</Text><Text style={s.formHint}>Search an address or tap the map to place a pin, then add the selected location to your registration.</Text>
+        <View style={s.locationSearchRow}><TextInput value={locationQuery} onChangeText={(value) => { setLocationQuery(value); setLocationChoices([]); setSelectedLocation(null); setMapPin(null); }} onSubmitEditing={() => void searchLocations()} placeholder="Address, area, landmark, or PIN code" placeholderTextColor={C.placeholder} style={[s.input,s.locationSearchInput]} returnKeyType="search" /></View>
+        <Pressable disabled={locationBusy} onPress={() => void searchLocations()} style={[s.primaryButton,locationBusy && s.buttonDisabled]}><Text style={s.primaryButtonText}>{locationBusy ? 'Searching…' : 'Search address'}</Text></Pressable>
+        {locationChoices.map((choice, index) => <Pressable key={`${choice.latitude}-${choice.longitude}-${index}`} onPress={() => { setSelectedLocation(choice); setMapPin({ latitude: choice.latitude, longitude: choice.longitude }); setLocationQuery(choice.address); setLocationNotice('Address selected. Add it below to use these premises.'); }} style={s.locationResult}><Text style={s.locationResultTitle}>{choice.address}</Text><Text style={s.locationResultSub}>{[choice.city, choice.pincode].filter(Boolean).join(' · ') || 'Tap to select this address'}</Text></Pressable>)}
+        <LocationMap center={center} selected={mapPin} onSelect={selectLocationPin} />
+        {locationNotice ? <Text style={s.locationNotice}>{locationNotice}</Text> : mapPin ? <Text style={s.selectedCoordinates}>Selected pin · {mapPin.latitude.toFixed(6)}, {mapPin.longitude.toFixed(6)}</Text> : <Text style={s.selectedCoordinates}>Search for an address or tap the map to place a pin.</Text>}
+        <Pressable disabled={!selectedLocation || locationBusy} onPress={() => void applySelectedLocation()} style={[s.primaryButton,(!selectedLocation || locationBusy) && s.buttonDisabled]}><Text style={s.primaryButtonText}>{locationBusy ? 'Adding location…' : 'Add this location'}</Text></Pressable>
       </>;
     }
     if (modal === 'appearance') return <><Text style={s.modalTitle}>Appearance</Text>{['Use device setting','Light','Dark'].map((item) => <Pressable key={item} style={s.appearanceChoice} onPress={() => { setAppearance(item); setModal(null); }}><Text style={[s.selectionMark, appearance === item && s.selectionMarkOn]}>{appearance === item ? 'â—‰' : 'â—‹'}</Text><Text style={s.rowTitle}>{item}</Text></Pressable>)}</>;
@@ -407,7 +455,7 @@ const s = StyleSheet.create({
   accountOption:{ minHeight:52, flexDirection:'row', alignItems:'center', gap:10, backgroundColor:C.card, paddingHorizontal:11, marginBottom:7, borderRadius:11 },optionGlyph:{ color:C.teal, fontSize:17, width:22, textAlign:'center' },profileFields:{ backgroundColor:C.card, padding:12, borderRadius:13 },signoutButton:{ minHeight:36, alignItems:'center', justifyContent:'center', borderRadius:20, borderColor:'#3c4b4d', borderWidth:1, marginTop:13 },signoutText:{ color:'#d9e5e4', fontSize:9, fontWeight:'800' },
   tabBar:{ height:57, flexDirection:'row', justifyContent:'space-around', alignItems:'center', borderTopWidth:StyleSheet.hairlineWidth, borderColor:'#222c2e', backgroundColor:'#0b1112', paddingHorizontal:3 },tabButton:{ width:'20%', alignItems:'center', justifyContent:'center', gap:3, position:'relative' },tabGlyph:{ color:'#768284', fontSize:16 },tabSelected:{ color:C.teal, fontWeight:'900' },tabLabel:{ color:'#7f8a8b', fontSize:7 },unreadDot:{ position:'absolute', width:6, height:6, backgroundColor:'#ed8f60', borderRadius:4, top:0, right:20 },
   chatTime:{ color:C.muted, fontSize:7 },chatCard:{ backgroundColor:C.card, borderRadius:14, padding:12, marginTop:9, height:440 },messageList:{ flex:1, marginVertical:10 },messageBubble:{ alignSelf:'flex-start', backgroundColor:'#202a2c', borderRadius:11, padding:9, maxWidth:'85%', marginBottom:7 },messageBubbleMine:{ alignSelf:'flex-end', backgroundColor:'#115b54' },messageText:{ color:C.white, fontSize:9, lineHeight:14 },messageTime:{ color:'#8f9e9e', fontSize:7, marginTop:4 },composer:{ flexDirection:'row', alignItems:'center', gap:8 },composerInput:{ flex:1, backgroundColor:'#20292b', color:C.white, borderRadius:10, minHeight:36, paddingHorizontal:10, fontSize:9 },sendButton:{ width:35, height:35, backgroundColor:C.teal, borderRadius:11, alignItems:'center', justifyContent:'center' },sendText:{ color:'#041312', fontSize:17, fontWeight:'900' },
-  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,.65)', justifyContent:'flex-end' },modalDock:{ width:'100%', maxWidth:480, alignSelf:'center' },modalCard:{ maxHeight:'90%', backgroundColor:'#111819', borderTopLeftRadius:22, borderTopRightRadius:22, padding:15, paddingBottom:22, borderWidth:1, borderColor:'#263235' },modalHandle:{ alignSelf:'center', width:37, height:4, borderRadius:4, backgroundColor:'#475355', marginBottom:14 },modalTitle:{ color:C.white, fontSize:15, fontWeight:'900', marginBottom:8 },modalCancel:{ alignItems:'center', paddingTop:10 },modalCancelText:{ color:C.muted, fontSize:9, fontWeight:'800' },appearanceChoice:{ flexDirection:'row', alignItems:'center', gap:10, minHeight:40 },selectionMark:{ color:C.muted, fontSize:15 },selectionMarkOn:{ color:C.teal },mapSelectButton:{ minHeight:55, flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:10, borderRadius:11, backgroundColor:'#192526', borderWidth:1, borderColor:'#28645d', marginBottom:9 },mapPinIcon:{ color:C.teal, fontSize:22 },mapSelectTitle:{ color:C.white, fontSize:9, fontWeight:'900' },mapSelectSub:{ color:C.muted, fontSize:8, marginTop:4 },seeMap:{ color:C.teal, fontSize:8, fontWeight:'900' },selectedCoordinates:{ color:C.mint, fontSize:8, textAlign:'center', marginVertical:5 },buttonDisabled:{ opacity:0.45 },
+  modalBackdrop:{ flex:1, backgroundColor:'rgba(0,0,0,.65)', justifyContent:'flex-end' },modalDock:{ width:'100%', maxWidth:480, alignSelf:'center' },modalCard:{ maxHeight:'90%', backgroundColor:'#111819', borderTopLeftRadius:22, borderTopRightRadius:22, padding:15, paddingBottom:22, borderWidth:1, borderColor:'#263235' },modalHandle:{ alignSelf:'center', width:37, height:4, borderRadius:4, backgroundColor:'#475355', marginBottom:14 },modalTitle:{ color:C.white, fontSize:15, fontWeight:'900', marginBottom:8 },modalCancel:{ alignItems:'center', paddingTop:10 },modalCancelText:{ color:C.muted, fontSize:9, fontWeight:'800' },appearanceChoice:{ flexDirection:'row', alignItems:'center', gap:10, minHeight:40 },selectionMark:{ color:C.muted, fontSize:15 },selectionMarkOn:{ color:C.teal },mapSelectButton:{ minHeight:55, flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:10, borderRadius:11, backgroundColor:'#192526', borderWidth:1, borderColor:'#28645d', marginBottom:9 },mapPinIcon:{ color:C.teal, fontSize:22 },mapSelectTitle:{ color:C.white, fontSize:9, fontWeight:'900' },mapSelectSub:{ color:C.muted, fontSize:8, marginTop:4 },seeMap:{ color:C.teal, fontSize:8, fontWeight:'900' },locationSearchRow:{ marginBottom:7 },locationSearchInput:{ width:'100%' },locationResult:{ padding:10, marginTop:6, borderRadius:10, backgroundColor:'#192526', borderWidth:1, borderColor:'#28645d' },locationResultTitle:{ color:C.white, fontSize:9, fontWeight:'800' },locationResultSub:{ color:C.muted, fontSize:8, marginTop:4 },locationNotice:{ color:'#ffcf85', fontSize:9, lineHeight:14, textAlign:'center', marginVertical:7 },selectedCoordinates:{ color:C.mint, fontSize:8, textAlign:'center', marginVertical:5 },buttonDisabled:{ opacity:0.45 },
   authNoticeText:{ color:C.muted },zoneError:{ color:C.muted }
 });
 
