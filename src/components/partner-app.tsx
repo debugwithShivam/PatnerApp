@@ -25,15 +25,11 @@ import { LocationMap, type LocationPin } from '@/components/location-map';
 import { apiBaseUrl, clearSession, partnerApi, persistSession, readAppearanceSetting, readSession, saveAppearanceSetting } from '@/services/partner-api';
 
 type Role = 'pharmacy' | 'lab' | 'doctor';
-type Tab = 'Dashboard' | 'Catalog' | 'Patients' | 'Messages' | 'Analytics' | 'Account';
+type Tab = 'Dashboard' | 'Patients' | 'Messages' | 'Analytics' | 'Account';
 type AnyRow = Record<string, any>;
 type Zone = { id: number; name: string; city?: string; state?: string; pincode?: string; latitude?: number | string; longitude?: number | string };
 type LocationChoice = LocationPin & { address: string; city?: string; pincode?: string };
 type FormState = Record<string, string>;
-type CatalogSubcategory = { id: number; name: string; image_full_url?: string };
-type CatalogCategory = { id: number; name: string; image_full_url?: string; subcategories?: CatalogSubcategory[] };
-type CatalogProduct = { id: number; name: string; description?: string; unit?: string; price: number; discount_price?: number | null; stock?: number; medicine_type?: string; category_name?: string; subcategory_name?: string; thumbnail_full_url?: string };
-type CatalogView = 'categories' | 'subcategories' | 'products';
 type IconName = 'dashboard' | 'patients' | 'messages' | 'analytics' | 'account' | 'total' | 'pending' | 'completed' | 'revenue' | 'pharmacy' | 'lab' | 'doctor' | 'verified' | 'refresh' | 'close' | 'back' | 'send' | 'profile' | 'appearance' | 'arrow' | 'empty' | 'signout' | 'prescription' | 'check' | 'radio' | 'image' | 'eye' | 'catalog';
 
 const iconSymbols: Record<IconName, { ios: string; android: string; web: string }> = {
@@ -75,7 +71,6 @@ const roles: { key: Role; title: string; icon: IconName; detail: string }[] = [
 
 const tabs: { title: Tab; icon: IconName }[] = [
   { title: 'Dashboard', icon: 'dashboard' },
-  { title: 'Catalog', icon: 'catalog' },
   { title: 'Patients', icon: 'patients' },
   { title: 'Messages', icon: 'messages' },
   { title: 'Analytics', icon: 'analytics' },
@@ -190,7 +185,7 @@ export function PartnerApp() {
   const C: Palette = isLightTheme ? lightPalette : darkPalette;
   const s = useMemo(() => makeStyles(C), [C]);
   useEffect(() => { void readAppearanceSetting().then((saved) => { if (saved) setAppearance(saved); }).catch(() => undefined); }, []);
-  const [modal, setModal] = useState<'appearance' | 'item' | 'quote' | 'location' | 'prescription' | 'meeting' | 'details' | 'bulk' | null>(null);
+  const [modal, setModal] = useState<'appearance' | 'item' | 'quote' | 'location' | 'prescription' | 'meeting' | 'details' | 'bulk' | 'profile' | 'report' | null>(null);
   const [mapPin, setMapPin] = useState<LocationPin | null>(null);
   const [locationQuery, setLocationQuery] = useState('');
   const [locationChoices, setLocationChoices] = useState<LocationChoice[]>([]);
@@ -198,15 +193,6 @@ export function PartnerApp() {
   const [locationNotice, setLocationNotice] = useState('');
   const [locationBusy, setLocationBusy] = useState(false);
 
-  // Catalog browsing (Category -> Subcategory -> Products)
-  const [catalogView, setCatalogView] = useState<CatalogView>('categories');
-  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
-  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
-  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
-  const [activeSubcategoryId, setActiveSubcategoryId] = useState<number | null>(null);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [catalogNotice, setCatalogNotice] = useState('');
 
   // Bulk product import
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
@@ -493,6 +479,7 @@ export function PartnerApp() {
       const result = await partnerApi<any>('/api/v1/providers/profile', { method: 'POST', body });
       setProvider(result.data);
       setNotice(result.message ?? 'Profile updated.');
+      setModal(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Profile could not be updated.');
     } finally {
@@ -539,6 +526,7 @@ export function PartnerApp() {
         setNotice('Choose a report file or enter report URL.');
         return;
       }
+      setBusy(true);
       try {
         const body: AnyRow = { provider_note: '' };
         if (reportAsset) {
@@ -554,9 +542,12 @@ export function PartnerApp() {
         setReportUrl('');
         setReportAsset(null);
         setNotice('Lab report uploaded successfully.');
+        setModal(null);
         await loadWorkspace();
       } catch (error) {
         setNotice(error instanceof Error ? error.message : 'Report could not be submitted.');
+      } finally {
+        setBusy(false);
       }
       return;
     }
@@ -583,6 +574,22 @@ export function PartnerApp() {
       }
     } catch {
       setNotice('Could not open image picker.');
+    }
+  };
+
+  const pickLabReport = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      setReportAsset(result.assets[0]);
+      setReportUrl('');
+      setNotice('Lab report file selected.');
+    } catch {
+      setNotice('Could not open the report file picker.');
     }
   };
 
@@ -704,8 +711,10 @@ export function PartnerApp() {
     if (!bulkRows.length) { setBulkResult('Upload a filled template first.'); return; }
     setBulkBusy(true);
     try {
-      const response = await partnerApi<{ message?: string }>('/api/v1/providers/products/bulk', { method: 'POST', body: { products: bulkRows } });
-      setBulkResult(response.message || 'Import complete.');
+      const response = await partnerApi<{ message?: string; imported?: number; skipped?: number; errors?: { row: number; message: string }[] }>('/api/v1/providers/products/bulk', { method: 'POST', body: { products: bulkRows } });
+      const rowIssues = (response.errors ?? []).slice(0, 5).map((issue) => 'Row ' + issue.row + ': ' + issue.message);
+      const moreIssues = (response.errors?.length ?? 0) > 5 ? 'And ' + ((response.errors?.length ?? 0) - 5) + ' more row note(s).' : '';
+      setBulkResult([response.message || ((response.imported ?? 0) + ' product(s) imported.'), ...rowIssues, moreIssues].filter(Boolean).join('\n'));
       setBulkRows([]);
       setBulkFileName('');
       await loadWorkspace();
@@ -817,82 +826,6 @@ export function PartnerApp() {
 
   const updateProfileField = (key: string, value: string) => setProvider((old) => old ? ({ ...old, [key]: value }) : old);
 
-  // CATALOG BROWSING LOADERS
-  const loadCatalogCategories = useCallback(async () => {
-    setCatalogLoading(true);
-    setCatalogNotice('');
-    try {
-      const response = await partnerApi<{ data?: CatalogCategory[] }>('/api/v1/medical/categories', { auth: false });
-      setCatalogCategories((response.data ?? []).map((item) => ({ ...item, id: Number(item.id) })));
-      setCatalogLoaded(true);
-    } catch (error) {
-      setCatalogNotice(error instanceof Error ? error.message : 'Could not load categories.');
-    } finally {
-      setCatalogLoading(false);
-    }
-  }, []);
-
-  const loadCatalogProducts = useCallback(async (categoryId: number | null, subcategoryId: number | null) => {
-    setCatalogLoading(true);
-    setCatalogNotice('');
-    try {
-      const params = new URLSearchParams();
-      if (categoryId) params.set('category_id', String(categoryId));
-      if (subcategoryId) params.set('subcategory_id', String(subcategoryId));
-      if (zoneId) params.set('zone_id', String(zoneId));
-      const query = params.toString();
-      const response = await partnerApi<{ data?: CatalogProduct[] }>(`/api/v1/medical/products${query ? `?${query}` : ''}`, { auth: false });
-      setCatalogProducts((response.data ?? []).map((item) => ({ ...item, id: Number(item.id) })));
-    } catch (error) {
-      setCatalogNotice(error instanceof Error ? error.message : 'Could not load products.');
-      setCatalogProducts([]);
-    } finally {
-      setCatalogLoading(false);
-    }
-  }, [zoneId]);
-
-  const openCatalogCategory = (category: CatalogCategory) => {
-    setActiveCategoryId(category.id);
-    setActiveSubcategoryId(null);
-    const subs = category.subcategories ?? [];
-    setCatalogView(subs.length ? 'subcategories' : 'products');
-    void loadCatalogProducts(category.id, null);
-  };
-
-  const openCatalogSubcategory = (subcategory: CatalogSubcategory) => {
-    setActiveSubcategoryId(subcategory.id);
-    setCatalogView('products');
-    void loadCatalogProducts(activeCategoryId, subcategory.id);
-  };
-
-  const openAllCategoryProducts = () => {
-    setActiveSubcategoryId(null);
-    setCatalogView('products');
-    void loadCatalogProducts(activeCategoryId, null);
-  };
-
-  const catalogBack = () => {
-    setCatalogNotice('');
-    if (catalogView === 'products') {
-      const active = catalogCategories.find((c) => c.id === activeCategoryId);
-      if (active && (active.subcategories ?? []).length) {
-        setCatalogView('subcategories');
-        setActiveSubcategoryId(null);
-        return;
-      }
-      setCatalogView('categories');
-      setActiveCategoryId(null);
-      setCatalogProducts([]);
-      return;
-    }
-    if (catalogView === 'subcategories') {
-      setCatalogView('categories');
-      setActiveCategoryId(null);
-      setActiveSubcategoryId(null);
-      setCatalogProducts([]);
-    }
-  };
-
   // SECTION RENDERERS
   const sectionHeader = (label: string, action?: { label: string; onPress: () => void }) => (
     <View style={s.sectionHeaderRow}>
@@ -907,8 +840,8 @@ export function PartnerApp() {
 
   // Stat metric cards row (Image 2)
   const metricCardsRow = () => {
-    const completedCount = analytics.completed_tasks ?? (tasks.filter((t) => t.status === 'completed').length || 2);
-    const paidRevenue = analytics.revenue ?? 300;
+    const completedCount = analytics.completed_tasks ?? tasks.filter((t) => t.status === 'completed').length;
+    const paidRevenue = analytics.revenue ?? 0;
     return (
       <View style={s.metricCardsRow}>
         <View style={s.metricCard}>
@@ -936,27 +869,28 @@ export function PartnerApp() {
 
   // Lab Booking Card (Matching Image 2 exactly)
   const labBookingCard = (task: AnyRow) => {
-    const status = String(task.status ?? 'completed').toLowerCase();
+    const status = String(task.status ?? 'pending').toLowerCase();
+    const actionLabel: Record<string, string> = { requested: 'Accept booking', accepted: 'Mark sample collected', sample_collected: 'Mark processing', processing: 'Upload report' };
     return (
       <View key={task.id} style={s.cardFrame}>
         <View style={s.cardTopRow}>
-          <Text style={s.cardItemTitle}>{task.test_name || task.name || 'CBC'}</Text>
+          <Text style={s.cardItemTitle}>{task.test_name || task.name || 'Lab test'}</Text>
           <View style={s.statusPillBadge}>
             <Text style={s.statusPillBadgeText}>{status}</Text>
           </View>
         </View>
 
         <View style={s.cardDetailsBox}>
-          <Text style={s.cardDetailText}>{task.customer_phone || '9838887549'}</Text>
-          <Text style={s.cardDetailText}>Scheduled: {task.scheduled_at || task.created_at || '2026-09-12T00:19:26.707892'}</Text>
-          <Text style={s.cardDetailText}>Collection: {task.collection_type || 'home'}</Text>
-          <Text style={s.cardDetailText}>Address: {task.address || task.customer_address || '117, Gandhi Nagar, Donari, Karaundi, Varanasi, Uttar Pradesh 221005, India'}</Text>
+          <Text style={s.cardDetailText}>{task.customer_phone || 'Phone not provided'}</Text>
+          <Text style={s.cardDetailText}>Scheduled: {task.scheduled_at || task.created_at || 'Schedule not provided'}</Text>
+          <Text style={s.cardDetailText}>Collection: {task.collection_type || 'Not specified'}</Text>
+          <Text style={s.cardDetailText}>Address: {task.address || task.customer_address || 'Address not provided'}</Text>
         </View>
 
         <View style={s.cardActionsRow}>
-          <Pressable onPress={() => void advanceAppointment(task)} style={s.solidTealButton}>
+          <Pressable disabled={!actionLabel[status]} onPress={() => { if (status === 'processing') { setSelectedDetailsItem(task); setReportAsset(null); setReportUrl(''); setModal('report'); } else { void advanceAppointment(task); } }} style={[s.solidTealButton, !actionLabel[status] && { opacity: 0.55 }]}>
             <SymbolView name={{ ios: 'arrow.triangle.2.circlepath', android: 'autorenew', web: 'autorenew' }} size={16} tintColor="#ffffff" fallback={<Text style={{ color: '#fff' }}>↻</Text>} />
-            <Text style={s.solidTealButtonText}>Replace report</Text>
+            <Text style={s.solidTealButtonText}>{actionLabel[status] || titleCase(status)}</Text>
           </Pressable>
 
           <Pressable onPress={() => { setSelectedDetailsItem(task); setModal('details'); }} style={s.outlinedButton}>
@@ -995,7 +929,7 @@ export function PartnerApp() {
       out_for_delivery: 'delivered',
     };
     const deliveryTiming = item.delivery_slot
-      || (item.delivery_type === 'express' ? '30-60 mint delivery express' : item.delivery_type === 'same_day' ? 'Same day delivery' : item.delivery_type === 'next_day' ? 'Next day delivery' : item.expected_delivery || '30-60 mint delivery express');
+      || (item.delivery_type === 'express' ? '30-60 mint delivery express' : item.delivery_type === 'same_day' ? 'Same day delivery' : item.delivery_type === 'next_day' ? 'Next day delivery' : item.expected_delivery || 'Not specified');
 
     return (
       <View key={item.id} style={s.cardFrame}>
@@ -1007,12 +941,12 @@ export function PartnerApp() {
         </View>
 
         <View style={s.cardDetailsBox}>
-          <Text style={s.cardDetailText}>{item.customer_phone || '9838887549'}</Text>
-          <Text style={s.cardDetailText}>Scheduled: {item.created_at || '2026-09-12T00:19:26.707892'}</Text>
+          <Text style={s.cardDetailText}>{item.customer_phone || 'Phone not provided'}</Text>
+          <Text style={s.cardDetailText}>Scheduled: {item.created_at || 'Date not provided'}</Text>
           <Text style={[s.cardDetailText, { fontWeight: '700', color: C.teal }]}>
             Delivery: {deliveryTiming}
           </Text>
-          <Text style={s.cardDetailText}>Address: {item.address || '117, Gandhi Nagar, Donari, Karaundi, Varanasi, Uttar Pradesh 221005, India'}</Text>
+          <Text style={s.cardDetailText}>Address: {item.address || 'Address not provided'}</Text>
           {(item.items ?? []).map((prod: AnyRow, i: number) => (
             <Text key={`${prod.id}-${i}`} style={[s.cardDetailText, { color: C.heading }]}>
               • {prod.product_name || prod.name} x {prod.quantity} ({fmtMoney(prod.total || prod.price)})
@@ -1125,7 +1059,7 @@ export function PartnerApp() {
         </View>
       </View>
       <View style={s.cardDetailsBox}>
-        <Text style={s.cardDetailText}>{task.customer_phone || '9838887549'}</Text>
+        <Text style={s.cardDetailText}>{task.customer_phone || 'Phone not provided'}</Text>
         <Text style={s.cardDetailText}>Customer: {task.customer_name || 'Patient'}</Text>
         <Text style={s.cardDetailText}>Scheduled: {task.created_at || ''}</Text>
         {(task.medicine_list ?? []).map((m: AnyRow, idx: number) => (
@@ -1163,18 +1097,14 @@ export function PartnerApp() {
       {role === 'lab' && (
         <>
           {sectionHeader('Lab bookings', { label: 'Refresh', onPress: () => void loadWorkspace() })}
-          {tasks.length ? tasks.map(labBookingCard) : [
-            { id: 101, name: 'CBC', test_name: 'CBC', customer_phone: '9838887549', scheduled_at: '2026-09-12T00:19:26.707892', collection_type: 'home', address: '117, Gandhi Nagar, Donari, Karaundi, Varanasi, Uttar Pradesh 221005, India', status: 'completed' },
-          ].map(labBookingCard)}
+          {tasks.length ? tasks.map(labBookingCard) : <View style={s.emptyBox}><Text style={s.emptyTitle}>No lab bookings yet</Text><Text style={s.emptySub}>New bookings from the customer app will appear here.</Text></View>}
         </>
       )}
 
       {role === 'pharmacy' && (
         <>
           {sectionHeader('Medicine orders', { label: 'Refresh', onPress: () => void loadWorkspace() })}
-          {orders.length ? orders.map(pharmacyOrderCard) : [
-            { id: 201, order_number: 'ORDER #1042', customer_phone: '9838887549', created_at: '2026-09-12T00:19:26.707892', delivery_slot: '30-60 mins Express', address: '117, Gandhi Nagar, Donari, Karaundi, Varanasi, Uttar Pradesh 221005, India', order_amount: 300, order_status: 'completed', items: [{ id: 1, product_name: 'Paracetamol 650mg', quantity: 2, total: 60 }, { id: 2, product_name: 'Amoxicillin 500mg', quantity: 1, total: 240 }] },
-          ].map(pharmacyOrderCard)}
+          {orders.length ? orders.map(pharmacyOrderCard) : <View style={s.emptyBox}><Text style={s.emptyTitle}>No medicine orders yet</Text><Text style={s.emptySub}>New customer orders will appear here.</Text></View>}
 
           {sectionHeader('Prescription requests')}
           {tasks.filter((t) => !t.test_name).map(prescriptionRequestCard)}
@@ -1272,9 +1202,9 @@ export function PartnerApp() {
       <View style={s.analyticsDetailCard}>
         <Text style={s.analyticsDetailTitle}>Operational Performance</Text>
         <Text style={s.analyticsDetailSub}>Total tasks: {analytics.total_tasks || tasks.length}</Text>
-        <Text style={s.analyticsDetailSub}>Completed tasks: {analytics.completed_tasks || 2}</Text>
+        <Text style={s.analyticsDetailSub}>Completed tasks: {analytics.completed_tasks ?? 0}</Text>
         <Text style={s.analyticsDetailSub}>Pending tasks: {analytics.pending_tasks || 0}</Text>
-        <Text style={s.analyticsDetailSub}>Revenue: {fmtMoney(analytics.revenue || 300)}</Text>
+        <Text style={s.analyticsDetailSub}>Revenue: {fmtMoney(analytics.revenue ?? 0)}</Text>
       </View>
     </ScrollView>
   );
@@ -1282,11 +1212,11 @@ export function PartnerApp() {
   // ACCOUNT SCREEN — redesigned to match screenshot style
   const accountScreen = () => {
     const bizName = provider?.business_name || provider?.name || 'Partner';
-    const verificationStatus = provider?.status === 1 ? 'approved' : (provider?.status === 0 ? 'pending' : 'approved');
+    const verificationStatus = typeof provider?.status === 'string' ? provider.status : (provider?.status === 1 ? 'approved' : (provider?.status === 0 ? 'pending' : 'unknown'));
     const verificationPhone = provider?.phone || provider?.license_number || '';
     const deliveryFee = provider?.default_delivery_fee ?? 0;
     const openingHours = provider?.opening_hours || 'Not set';
-    const serviceRadius = provider?.service_radius ?? 0;
+    const serviceRadius = provider?.service_radius_km ?? provider?.service_radius ?? 0;
 
     return (
       <ScrollView contentContainerStyle={[s.scrollContent, { paddingTop: 0 }]} showsVerticalScrollIndicator={false}>
@@ -1299,7 +1229,7 @@ export function PartnerApp() {
         {/* Settings List Card */}
         <View style={s.acctSettingsCard}>
           {/* Professional profile */}
-          <Pressable onPress={() => setModal('appearance')} style={s.acctSettingsRow}>
+          <Pressable onPress={() => setModal('profile')} style={s.acctSettingsRow}>
             <View style={s.acctSettingsIconWrap}>
               <AppIcon name="profile" size={20} color={C.ink} />
             </View>
@@ -1343,7 +1273,7 @@ export function PartnerApp() {
           <View style={s.acctPharmacyCard}>
             <View style={s.acctPharmacyHeader}>
               <Text style={s.acctPharmacyTitle}>Pharmacy settings</Text>
-              <Pressable onPress={() => void updateProvider()}>
+              <Pressable onPress={() => setModal('profile')}>
                 <Text style={s.acctPharmacyEdit}>Edit</Text>
               </Pressable>
             </View>
@@ -1358,17 +1288,25 @@ export function PartnerApp() {
           <>
             <View style={s.acctCatalogHeader}>
               <Text style={s.acctCatalogTitle}>Medicine catalogue</Text>
-              <Pressable
-                onPress={() => {
-                  setItemForm({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '', requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true, code: '', preparation: '', report_hours: '24' });
-                  setItemImageUri(null);
-                  setItemImageBase64(null);
-                  setModal('item');
-                }}
-                style={s.acctCatalogAddBtn}
-              >
-                <Text style={s.acctCatalogAddBtnText}>+ Add</Text>
-              </Pressable>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'stretch', width: '100%' }}>
+                <Pressable
+                  onPress={() => setModal('bulk')}
+                  style={[s.acctCatalogAddBtn, { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }]}
+                >
+                  <Text numberOfLines={1} style={[s.acctCatalogAddBtnText, { color: C.ink }]}>Bulk import</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setItemForm({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '', requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true, code: '', preparation: '', report_hours: '24' });
+                    setItemImageUri(null);
+                    setItemImageBase64(null);
+                    setModal('item');
+                  }}
+                  style={[s.acctCatalogAddBtn, { flex: 1, minWidth: 0 }]}
+                >
+                  <Text numberOfLines={1} style={s.acctCatalogAddBtnText}>+ Add product</Text>
+                </Pressable>
+              </View>
             </View>
 
             {products.length === 0 ? (
@@ -1379,8 +1317,8 @@ export function PartnerApp() {
             ) : (
               products.map((item) => (
                 <View key={String(item.id)} style={s.acctMedCard}>
-                  {item.thumbnail ? (
-                    <Image source={{ uri: `${apiBaseUrl}/${item.thumbnail}` }} style={s.acctMedThumb} />
+                  {(item.thumbnail_full_url || item.thumbnail) ? (
+                    <Image source={{ uri: (item.thumbnail_full_url || item.thumbnail).startsWith('http') ? (item.thumbnail_full_url || item.thumbnail) : `${apiBaseUrl()}/${String(item.thumbnail_full_url || item.thumbnail).replace(/^\//, '')}` }} style={s.acctMedThumb} />
                   ) : (
                     <View style={[s.acctMedThumb, s.acctMedThumbFallback]}>
                       <AppIcon name="pharmacy" size={22} color={C.teal} />
@@ -1478,137 +1416,66 @@ export function PartnerApp() {
     </ScrollView>
   );
 
-  const catalogScreen = () => {
-    const activeCategory = catalogCategories.find((c) => c.id === activeCategoryId) ?? null;
-    const subcategories = activeCategory?.subcategories ?? [];
-    const showLoading = catalogLoading && (catalogView === 'categories' ? !catalogCategories.length : true);
-    return (
-      <ScrollView contentContainerStyle={s.scrollContent}>
-        {catalogView !== 'categories' ? (
-          <Pressable onPress={catalogBack} style={s.backRow}>
-            <Text style={s.backText}>‹ {catalogView === 'products' && subcategories.length ? 'Subcategories' : 'All categories'}</Text>
-          </Pressable>
-        ) : null}
-
-        {catalogView === 'categories' ? sectionHeader('Catalog', { label: 'Refresh', onPress: () => void loadCatalogCategories() }) : null}
-        {catalogView === 'subcategories' ? sectionHeader(activeCategory?.name || 'Subcategories') : null}
-        {catalogView === 'products' ? sectionHeader(activeCategory?.name || 'Products') : null}
-
-        {catalogNotice ? <Text style={s.noticeBanner}>{catalogNotice}</Text> : null}
-
-        {showLoading ? (
-          <View style={s.emptyBox}><ActivityIndicator color={C.teal} /></View>
-        ) : null}
-
-        {!showLoading && catalogView === 'categories' ? (
-          catalogCategories.length ? catalogCategories.map((category) => {
-            const count = (category.subcategories ?? []).length;
-            return (
-              <Pressable key={category.id} onPress={() => openCatalogCategory(category)} style={s.patientRow}>
-                {category.image_full_url
-                  ? <Image source={{ uri: category.image_full_url }} style={s.catalogThumb} />
-                  : <View style={s.patientAvatar}><Text style={s.patientAvatarText}>{(category.name || 'C').slice(0, 1).toUpperCase()}</Text></View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={s.patientName}>{category.name}</Text>
-                  <Text style={s.patientSub}>{count ? `${count} subcategor${count === 1 ? 'y' : 'ies'}` : 'View products'}</Text>
-                </View>
-                <Text style={s.catalogChevron}>›</Text>
-              </Pressable>
-            );
-          }) : (
-            <View style={s.emptyBox}>
-              <Text style={s.emptyTitle}>No categories yet</Text>
-              <Text style={s.emptySub}>Catalog categories will appear here once available.</Text>
-            </View>
-          )
-        ) : null}
-
-        {!showLoading && catalogView === 'subcategories' ? (
-          <>
-            <Pressable onPress={openAllCategoryProducts} style={s.catalogAllCard}>
-              <View style={s.patientAvatar}><AppIcon name="catalog" size={20} color={C.tealDeep} /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.patientName}>All {activeCategory?.name || ''} products</Text>
-                <Text style={s.patientSub}>Browse every product in this category</Text>
-              </View>
-              <Text style={s.catalogChevron}>›</Text>
-            </Pressable>
-            {subcategories.map((subcategory) => (
-              <Pressable key={subcategory.id} onPress={() => openCatalogSubcategory(subcategory)} style={s.patientRow}>
-                {subcategory.image_full_url
-                  ? <Image source={{ uri: subcategory.image_full_url }} style={s.catalogThumb} />
-                  : <View style={s.patientAvatar}><Text style={s.patientAvatarText}>{(subcategory.name || 'S').slice(0, 1).toUpperCase()}</Text></View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={s.patientName}>{subcategory.name}</Text>
-                  <Text style={s.patientSub}>View products</Text>
-                </View>
-                <Text style={s.catalogChevron}>›</Text>
-              </Pressable>
-            ))}
-          </>
-        ) : null}
-
-        {!showLoading && catalogView === 'products' ? (
-          <>
-            {subcategories.length ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-                <Pressable
-                  onPress={openAllCategoryProducts}
-                  style={[s.catalogChip, activeSubcategoryId === null && s.catalogChipActive]}
-                >
-                  <Text style={[s.catalogChipText, activeSubcategoryId === null && s.catalogChipTextActive]}>All</Text>
-                </Pressable>
-                {subcategories.map((subcategory) => (
-                  <Pressable
-                    key={subcategory.id}
-                    onPress={() => openCatalogSubcategory(subcategory)}
-                    style={[s.catalogChip, activeSubcategoryId === subcategory.id && s.catalogChipActive]}
-                  >
-                    <Text style={[s.catalogChipText, activeSubcategoryId === subcategory.id && s.catalogChipTextActive]}>{subcategory.name}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            ) : null}
-            {catalogProducts.length ? catalogProducts.map((product) => (
-              <View key={product.id} style={s.patientRow}>
-                {product.thumbnail_full_url
-                  ? <Image source={{ uri: product.thumbnail_full_url }} style={s.catalogThumb} />
-                  : <View style={s.patientAvatar}><Text style={s.patientAvatarText}>{(product.name || 'M').slice(0, 1).toUpperCase()}</Text></View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={s.patientName}>{product.name}</Text>
-                  {product.subcategory_name ? <Text style={s.patientSub}>{product.subcategory_name}</Text> : null}
-                  <Text style={s.catalogPrice}>
-                    {fmtMoney(product.discount_price || product.price)}
-                    {product.discount_price && product.discount_price < product.price ? <Text style={s.catalogStrike}>  {fmtMoney(product.price)}</Text> : null}
-                    {product.unit ? <Text style={s.patientSub}> / {product.unit}</Text> : null}
-                  </Text>
-                </View>
-              </View>
-            )) : (
-              <View style={s.emptyBox}>
-                <Text style={s.emptyTitle}>No products found</Text>
-                <Text style={s.emptySub}>There are no products in this selection yet.</Text>
-              </View>
-            )}
-          </>
-        ) : null}
-      </ScrollView>
-    );
-  };
-
   const activeContent = useMemo(() => {
     switch (tab) {
       case 'Dashboard': return dashboardScreen();
-      case 'Catalog': return catalogScreen();
       case 'Patients': return patientsScreen();
       case 'Messages': return messagesScreen();
       case 'Analytics': return analyticsScreen();
       case 'Account': return accountScreen();
       default: return dashboardScreen();
     }
-  }, [tab, workspace, provider, conversation, messages, draft, reportUrl, products, labTests, orders, patients, tasks, analytics, notice, role, refreshing, appearance, itemForm, itemImageUri, s, catalogView, catalogCategories, catalogProducts, activeCategoryId, activeSubcategoryId, catalogLoading, catalogLoaded, catalogNotice, loadCatalogCategories]);
+  }, [tab, workspace, provider, conversation, messages, draft, reportUrl, products, labTests, orders, patients, tasks, analytics, notice, role, refreshing, appearance, itemForm, itemImageUri, s]);
 
-  const renderModalContent = () => {
+    const renderModalContent = () => {
+    if (modal === 'profile') {
+      const fields = role === 'pharmacy'
+        ? [{ key: 'business_name', label: 'Pharmacy name' }, { key: 'email', label: 'Email' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'opening_hours', label: 'Opening hours' }, { key: 'default_delivery_fee', label: 'Default delivery fee' }, { key: 'service_radius_km', label: 'Service radius (km)' }]
+        : role === 'lab'
+          ? [{ key: 'business_name', label: 'Laboratory name' }, { key: 'email', label: 'Email' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'opening_hours', label: 'Opening hours' }, { key: 'home_collection_fee', label: 'Home collection fee' }]
+          : [{ key: 'name', label: 'Doctor name' }, { key: 'email', label: 'Email' }, { key: 'address', label: 'Clinic address' }, { key: 'city', label: 'City' }, { key: 'speciality', label: 'Speciality' }, { key: 'qualification', label: 'Qualification' }, { key: 'experience_years', label: 'Experience (years)' }, { key: 'consultation_fee', label: 'Consultation fee' }, { key: 'availability_text', label: 'Availability' }];
+      return (
+        <View style={s.addMedicineModalContainer}>
+          <Text style={s.addMedicineTitle}>Professional profile</Text>
+          {fields.map((field) => (
+            <View key={field.key} style={s.inputContainer}>
+              <TextInput
+                value={String(provider?.[field.key] ?? '')}
+                onChangeText={(value) => updateProfileField(field.key, value)}
+                placeholder={field.label}
+                placeholderTextColor={C.placeholder}
+                keyboardType={['default_delivery_fee', 'service_radius_km', 'home_collection_fee', 'experience_years', 'consultation_fee'].includes(field.key) ? 'decimal-pad' : 'default'}
+                multiline={field.key === 'address' || field.key === 'availability_text'}
+                style={s.formInput}
+              />
+            </View>
+          ))}
+          <Pressable disabled={busy} onPress={() => void updateProvider()} style={s.submitMedicineButton}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.submitMedicineButtonText}>Save profile to admin</Text>}
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (modal === 'report' && selectedDetailsItem) {
+      return (
+        <View style={s.addMedicineModalContainer}>
+          <Text style={s.addMedicineTitle}>Upload lab report</Text>
+          <Text style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>Attach a PDF or image, or provide a secure report URL. Submitting completes this booking and makes the report available to the customer.</Text>
+          <Pressable onPress={() => void pickLabReport()} style={s.outlinedButton}>
+            <Text style={s.outlinedButtonText}>{reportAsset?.name || 'Choose PDF or image'}</Text>
+          </Pressable>
+          <TextInput value={reportUrl} onChangeText={(value) => { setReportUrl(value); if (value) setReportAsset(null); }} placeholder="Or paste report URL" placeholderTextColor={C.placeholder} autoCapitalize="none" keyboardType="url" style={s.formInput} />
+          <View style={s.modalFooterRow}>
+            <Pressable onPress={() => setModal(null)} style={s.cancelTextButton}><Text style={s.cancelTextButtonLabel}>Cancel</Text></Pressable>
+            <Pressable disabled={busy || (!reportUrl.trim() && !reportAsset)} onPress={() => void advanceAppointment(selectedDetailsItem)} style={[s.submitMedicineButton, { opacity: busy || (!reportUrl.trim() && !reportAsset) ? 0.5 : 1 }]}>
+              <Text style={s.submitMedicineButtonText}>{busy ? 'Uploading…' : 'Submit report'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+
     if (modal === 'appearance') {
       return (
         <View style={s.addMedicineModalContainer}>
@@ -1865,6 +1732,56 @@ export function PartnerApp() {
       );
     }
 
+    if (modal === 'bulk') {
+      return (
+        <View style={s.addMedicineModalContainer}>
+          <Text style={s.addMedicineTitle}>Bulk import products</Text>
+          <Text style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>
+            Download the template, fill one product per row (images as URLs), then upload and import.
+          </Text>
+
+          <View style={{ gap: 10 }}>
+            <Pressable onPress={() => void downloadBulkTemplate()} style={s.submitMedicineButton}>
+              <Text style={s.submitMedicineButtonText}>Download template</Text>
+            </Pressable>
+
+            <Pressable onPress={() => void pickBulkFile()} style={s.outlinedButton}>
+              <Text style={s.outlinedButtonText}>Upload filled template</Text>
+            </Pressable>
+
+            {bulkFileName ? (
+              <Text style={{ color: C.bodyTextAlt, fontSize: 13 }}>📎 {bulkFileName}</Text>
+            ) : null}
+
+            {bulkRows.length ? (
+              <View style={{ backgroundColor: C.bgAlt, borderRadius: 10, padding: 10, marginTop: 4 }}>
+                <Text style={{ color: C.bodyText, fontSize: 13, fontWeight: '600' }}>
+                  {bulkRows.length} product row(s) loaded
+                </Text>
+              </View>
+            ) : null}
+
+            {bulkResult ? (
+              <Text style={{ color: C.bodyTextAlt, fontSize: 13, lineHeight: 19, marginTop: 4 }}>{bulkResult}</Text>
+            ) : null}
+          </View>
+
+          <View style={s.modalFooterRow}>
+            <Pressable onPress={() => { setBulkRows([]); setBulkFileName(''); setBulkResult(''); setModal(null); }} style={s.cancelTextButton}>
+              <Text style={s.cancelTextButtonLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              disabled={bulkBusy || !bulkRows.length}
+              onPress={() => void submitBulkImport()}
+              style={[s.submitMedicineButton, { opacity: bulkBusy || !bulkRows.length ? 0.5 : 1 }]}
+            >
+              {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.submitMedicineButtonText}>Import all</Text>}
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+
     return null;
   };
 
@@ -1905,7 +1822,6 @@ export function PartnerApp() {
                     setNotice('');
                     if (item.title === 'Messages') void loadConversations();
                     if (item.title === 'Dashboard' || item.title === 'Patients' || item.title === 'Analytics') void loadWorkspace();
-                    if (item.title === 'Catalog') void loadWorkspace();
                   }}
                   style={s.bottomNavItem}
                 >
@@ -2608,63 +2524,6 @@ const makeStyles = (C: Palette) => StyleSheet.create({
     marginTop: 4,
   },
 
-  // Catalog browsing
-  catalogThumb: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: C.bgAlt,
-  },
-  catalogChevron: {
-    fontSize: 22,
-    color: C.muted,
-    marginLeft: 4,
-  },
-  catalogAllCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: C.tealTint,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.tealBorder,
-    marginBottom: 10,
-  },
-  catalogChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
-    marginRight: 8,
-  },
-  catalogChipActive: {
-    borderColor: C.teal,
-    backgroundColor: C.tealTint,
-  },
-  catalogChipText: {
-    fontSize: 13,
-    color: C.bodyText,
-    fontWeight: '600',
-  },
-  catalogChipTextActive: {
-    color: C.tealDeep,
-  },
-  catalogPrice: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: C.tealDeep,
-    marginTop: 4,
-  },
-  catalogStrike: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: C.muted,
-    textDecorationLine: 'line-through',
-  },
-
   // Account — redesigned to match screenshot
   accountHeaderBox: {
     alignItems: 'center',
@@ -2813,12 +2672,12 @@ const makeStyles = (C: Palette) => StyleSheet.create({
   },
 
   acctCatalogHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginBottom: 10,
-    marginTop: 4,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 12,
+    marginHorizontal: 0,
+    marginBottom: 12,
+    marginTop: 8,
   },
   acctCatalogTitle: {
     fontSize: 20,
@@ -2828,20 +2687,25 @@ const makeStyles = (C: Palette) => StyleSheet.create({
   acctCatalogAddBtn: {
     backgroundColor: C.teal,
     borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   acctCatalogAddBtnText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
+    textAlign: 'center',
   },
   acctMedCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.surface,
     borderRadius: 16,
-    marginHorizontal: 16,
+    marginHorizontal: 0,
     marginBottom: 10,
     padding: 14,
     borderWidth: 1,
