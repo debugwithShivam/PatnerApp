@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AIMEDIX MEDS MEDIX Patner",
+    "name": "AIMEDIX MEDS PATNER",
     "slug": "aimedix-partner",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -40,10 +40,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "8a89fe61-88ca-42c0-b33d-be50f62ae3e9"
-      }
+      "router": {}
     },
     "owner": "harshpandeyxande"
   }

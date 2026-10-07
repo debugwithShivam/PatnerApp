@@ -23,6 +23,7 @@ module.exports = ({ config }) => {
     'react-native-maps',
     mapsKey ? { androidGoogleMapsApiKey: mapsKey } : {},
   ]);
+  plugins.push('expo-sharing');
   return {
     ...appJson.expo,
     ...config,

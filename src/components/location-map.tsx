@@ -43,7 +43,7 @@ export function LocationMap({
   );
 }
 
-const s = StyleSheet.create({
+const s: any = StyleSheet.create({
   frame: {
     height: 370,
     width: '100%',

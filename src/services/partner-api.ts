@@ -16,6 +16,7 @@ const BASE_URL = Platform.OS === 'android'
   : CONFIGURED_BASE_URL;
 const TOKEN_KEY = 'aimedix_partner_token';
 const ROLE_KEY = 'aimedix_partner_role';
+const APPEARANCE_KEY = 'aimedix_partner_appearance';
 
 async function read(key: string) {
   if (Platform.OS === 'web') return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
@@ -53,4 +54,6 @@ export async function partnerApi<T = any>(path: string, options: { method?: stri
 export const persistSession = async (token: string, role: string) => { await write(TOKEN_KEY, token); await write(ROLE_KEY, role); };
 export const clearSession = async () => { await write(TOKEN_KEY, null); await write(ROLE_KEY, null); };
 export const readSession = async () => ({ token: await read(TOKEN_KEY), role: await read(ROLE_KEY) });
+export const readAppearanceSetting = async () => read(APPEARANCE_KEY);
+export const saveAppearanceSetting = async (value: string) => { await write(APPEARANCE_KEY, value); };
 export const apiBaseUrl = () => BASE_URL;

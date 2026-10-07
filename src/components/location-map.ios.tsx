@@ -17,4 +17,4 @@ export function LocationMap({ center, selected, onSelect }: LocationMapProps) {
   );
 }
 
-const s = StyleSheet.create({ frame: { height: 370, width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 8, backgroundColor: '#1d292a' }, map: { flex: 1 } });
+const s: any = StyleSheet.create({ frame: { height: 370, width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 8, backgroundColor: '#1d292a' }, map: { flex: 1 } });
