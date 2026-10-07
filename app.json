@@ -29,8 +29,9 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFFFF",
-          "image": "./assets/appicon-splash.png",
-          "imageWidth": 300
+          "image": "./assets/appicon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
         }
       ],
       "expo-secure-store"
@@ -40,7 +41,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "8a89fe61-88ca-42c0-b33d-be50f62ae3e9"
+      }
     },
     "owner": "harshpandeyxande"
   }
