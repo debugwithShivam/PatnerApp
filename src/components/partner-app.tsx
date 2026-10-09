@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -122,6 +122,7 @@ type BulkRow = {
   max_qty_per_order: number | null; max_qty_per_month: number | null;
   requires_pharmacist_review: boolean; requires_age_confirmation: boolean; allows_substitution: boolean;
   category_id: number | null; image_url: string;
+  category?: string; subcategory?: string; preparation?: string; report_hours?: number; home_collection?: boolean;
 };
 
 const normalizeBulkHeader = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '');
@@ -155,6 +156,11 @@ function normalizeBulkRow(raw: Record<string, unknown>): BulkRow {
     allows_substitution: str(subRaw) === '' ? true : bulkTruthy(subRaw),
     category_id: num(pick('categoryid', 'category')) || null,
     image_url: str(pick('imageurl', 'image', 'photo', 'thumbnail')),
+    category: str(pick('category', 'testcategory')),
+    subcategory: str(pick('subcategory', 'testsubcategory')),
+    preparation: str(pick('preparation', 'instructions')),
+    report_hours: num(pick('reporthours', 'turnaroundhours')) || 24,
+    home_collection: String(pick('homecollection', 'homecollectionavailable')).trim() === '' ? true : bulkTruthy(pick('homecollection', 'homecollectionavailable')),
   };
 }
 
@@ -178,7 +184,6 @@ export function PartnerApp() {
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [appearance, setAppearance] = useState('System');
   const systemScheme = useColorScheme();
   const isLightTheme = appearance === 'Light' || (appearance !== 'Dark' && systemScheme !== 'dark');
@@ -217,6 +222,8 @@ export function PartnerApp() {
     requires_age_confirmation: false,
     allows_substitution: true,
     code: '',
+    category: '',
+    subcategory: '',
     preparation: '',
     report_hours: '24',
   });
@@ -227,16 +234,14 @@ export function PartnerApp() {
   const [quoteTask, setQuoteTask] = useState<AnyRow | null>(null);
   const [prescriptionTask, setPrescriptionTask] = useState<AnyRow | null>(null);
   const [prescriptionDraft, setPrescriptionDraft] = useState('');
-  const [meetingTask, setMeetingTask] = useState<AnyRow | null>(null);
-  const [meetingUrl, setMeetingUrl] = useState('');
   const [reportUrl, setReportUrl] = useState('');
   const [reportAsset, setReportAsset] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [selectedDetailsItem, setSelectedDetailsItem] = useState<AnyRow | null>(null);
+  const [meetingUrlDraft, setMeetingUrlDraft] = useState('');
 
   const loadWorkspace = useCallback(async (selectedRole?: Role) => {
     const activeRole = selectedRole ?? role;
     if (!activeRole) return;
-    setRefreshing(true);
     try {
       const data = await partnerApi<any>('/api/v1/providers/tasks');
       setWorkspace(data);
@@ -261,8 +266,6 @@ export function PartnerApp() {
         setProvider(null);
         setWorkspace(null);
       }
-    } finally {
-      setRefreshing(false);
     }
   }, [role]);
 
@@ -280,7 +283,7 @@ export function PartnerApp() {
   }, [loadWorkspace]);
 
   useEffect(() => {
-    if (!provider || role !== 'pharmacy') return;
+    if (!provider?.id || role !== 'pharmacy') return;
     const refresh = setInterval(() => { void loadWorkspace('pharmacy'); }, 20000);
     return () => clearInterval(refresh);
   }, [provider?.id, role, loadWorkspace]);
@@ -600,6 +603,10 @@ export function PartnerApp() {
     }
     const isLab = role === 'lab';
     const medName = itemForm.name.trim() || itemForm.description.trim();
+    if (isLab && (!itemForm.name.trim() || Number(itemForm.price || 0) <= 0)) {
+      setNotice('Enter a diagnostic test name and a valid price above zero.');
+      return;
+    }
     if (!isLab && (!medName || Number(itemForm.price || 0) <= 0)) {
       setNotice('Enter medicine name and a valid price above zero.');
       return;
@@ -608,6 +615,8 @@ export function PartnerApp() {
       ? {
           name: itemForm.name,
           code: itemForm.code,
+          category: itemForm.category.trim(),
+          subcategory: itemForm.subcategory.trim(),
           description: itemForm.description,
           price: Number(itemForm.price || 0),
           preparation: itemForm.preparation,
@@ -641,6 +650,7 @@ export function PartnerApp() {
         sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '',
         requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true,
         code: '', preparation: '', report_hours: '24',
+        category: '', subcategory: '',
       });
       setItemImageUri(null);
       setItemImageBase64(null);
@@ -653,8 +663,10 @@ export function PartnerApp() {
 
   const downloadBulkTemplate = async () => {
     try {
-      const worksheet = XLSX.utils.json_to_sheet([BULK_EXAMPLE_ROW], { header: [...BULK_COLUMNS] });
-      worksheet['!cols'] = BULK_COLUMNS.map((column) => ({ wch: Math.max(12, column.length + 2) }));
+      const columns = role === 'lab' ? ['name', 'category', 'subcategory', 'code', 'description', 'price', 'preparation', 'report_hours', 'home_collection'] : [...BULK_COLUMNS];
+      const example = role === 'lab' ? { name: 'Chest X-Ray', category: 'Xray', subcategory: 'Chest', code: 'XR-CHEST', description: 'Chest X-Ray test', price: 500, preparation: 'No preparation required', report_hours: 24, home_collection: 'yes' } : BULK_EXAMPLE_ROW;
+      const worksheet = XLSX.utils.json_to_sheet([example], { header: columns });
+      worksheet['!cols'] = columns.map((column) => ({ wch: Math.max(12, column.length + 2) }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
       const base64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' }) as string;
@@ -664,11 +676,11 @@ export function PartnerApp() {
         for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
         const url = URL.createObjectURL(new Blob([bytes], { type: BULK_SHEET_MIME }));
         const anchor = document.createElement('a');
-        anchor.href = url; anchor.download = BULK_FILE_NAME;
+        anchor.href = url; anchor.download = role === 'lab' ? 'aimedix-lab-tests-template.xlsx' : BULK_FILE_NAME;
         document.body.appendChild(anchor); anchor.click(); anchor.remove();
         URL.revokeObjectURL(url);
       } else {
-        const destination = `${FileSystem.cacheDirectory ?? ''}${BULK_FILE_NAME}`;
+        const destination = `${FileSystem.cacheDirectory ?? ''}${role === 'lab' ? 'aimedix-lab-tests-template.xlsx' : BULK_FILE_NAME}`;
         await FileSystem.writeAsStringAsync(destination, base64, { encoding: FileSystem.EncodingType.Base64 });
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(destination, { mimeType: BULK_SHEET_MIME, dialogTitle: 'Save bulk import template', UTI: 'public.spreadsheet' });
@@ -676,7 +688,7 @@ export function PartnerApp() {
           setBulkResult(`Template saved to ${destination}`);
         }
       }
-      setBulkResult('Template ready. Fill one product per row (image as a URL), then upload it below.');
+      setBulkResult(role === 'lab' ? 'Lab test template ready. Fill category and subcategory for each test, then upload it below.' : 'Template ready. Fill one product per row (image as a URL), then upload it below.');
     } catch {
       setBulkResult('Could not generate the template on this device.');
     }
@@ -703,7 +715,7 @@ export function PartnerApp() {
         ? `${rows.length} product row(s) ready to import from ${asset.name}.`
         : 'No valid rows found. Make sure the header row matches the template and a name is filled.');
     } catch {
-      setBulkResult('Could not read that file. Please upload the .xlsx template you downloaded.');
+      setBulkResult('Could not read that file. Upload the Excel or CSV template with a test name column.');
     }
   };
 
@@ -711,7 +723,7 @@ export function PartnerApp() {
     if (!bulkRows.length) { setBulkResult('Upload a filled template first.'); return; }
     setBulkBusy(true);
     try {
-      const response = await partnerApi<{ message?: string; imported?: number; skipped?: number; errors?: { row: number; message: string }[] }>('/api/v1/providers/products/bulk', { method: 'POST', body: { products: bulkRows } });
+      const response = await partnerApi<{ message?: string; imported?: number; skipped?: number; errors?: { row: number; message: string }[] }>(role === 'lab' ? '/api/v1/providers/lab-tests/bulk' : '/api/v1/providers/products/bulk', { method: 'POST', body: role === 'lab' ? { tests: bulkRows } : { products: bulkRows } });
       const rowIssues = (response.errors ?? []).slice(0, 5).map((issue) => 'Row ' + issue.row + ': ' + issue.message);
       const moreIssues = (response.errors?.length ?? 0) > 5 ? 'And ' + ((response.errors?.length ?? 0) - 5) + ' more row note(s).' : '';
       setBulkResult([response.message || ((response.imported ?? 0) + ' product(s) imported.'), ...rowIssues, moreIssues].filter(Boolean).join('\n'));
@@ -809,6 +821,49 @@ export function PartnerApp() {
       await partnerApi(`/api/v1/providers/medical-chat/${item.id}/read`, { method: 'POST', body: {} });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not open conversation.');
+    }
+  };
+
+  const saveConsultationMeetingLink = async () => {
+    if (role !== 'doctor' || !selectedDetailsItem) return;
+    const meetingUrl = meetingUrlDraft.trim();
+    if (meetingUrl && !/^https?:\/\//i.test(meetingUrl)) {
+      setNotice('Enter a complete Zoom or meeting link starting with https://.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await partnerApi<any>(`/api/v1/providers/consultations/${selectedDetailsItem.id}/connect`, {
+        method: 'POST',
+        body: { meeting_url: meetingUrl },
+      });
+      setSelectedDetailsItem((current) => current ? { ...current, meeting_url: meetingUrl } : current);
+      setNotice(result.message ?? 'Meeting link shared with the patient.');
+      await loadWorkspace();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Meeting link could not be saved.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openConsultationChat = async (task: AnyRow) => {
+    try {
+      const result = await partnerApi<any>('/api/v1/providers/medical-chat', {
+        method: 'POST',
+        body: { entity_type: 'consultation', entity_id: Number(task.id) },
+      });
+      const thread = result.data;
+      if (!thread?.id) throw new Error('Patient chat is not available for this appointment.');
+      setConversation(thread);
+      setMessages(result.messages ?? []);
+      setDraft('');
+      setModal(null);
+      setTab('Messages');
+      await partnerApi(`/api/v1/providers/medical-chat/${thread.id}/read`, { method: 'POST', body: {} });
+      await loadConversations();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not open patient chat.');
     }
   };
 
@@ -1038,7 +1093,7 @@ export function PartnerApp() {
           <Pressable onPress={() => void advanceAppointment(task)} style={s.solidTealButton}>
             <Text style={s.solidTealButtonText}>{nextText}</Text>
           </Pressable>
-          <Pressable onPress={() => { setSelectedDetailsItem(task); setModal('details'); }} style={s.outlinedButton}>
+          <Pressable onPress={() => { setSelectedDetailsItem(task); setMeetingUrlDraft(String(task.meeting_url ?? '')); setModal('details'); }} style={s.outlinedButton}>
             <Text style={s.outlinedButtonText}>Details</Text>
           </Pressable>
           <Pressable onPress={() => { setPrescriptionTask(task); setModal('prescription'); }} style={s.outlinedButton}>
@@ -1098,6 +1153,9 @@ export function PartnerApp() {
         <>
           {sectionHeader('Lab bookings', { label: 'Refresh', onPress: () => void loadWorkspace() })}
           {tasks.length ? tasks.map(labBookingCard) : <View style={s.emptyBox}><Text style={s.emptyTitle}>No lab bookings yet</Text><Text style={s.emptySub}>New bookings from the customer app will appear here.</Text></View>}
+          {sectionHeader('Diagnostics & lab catalogue', { label: '+ Add test', onPress: () => { setItemForm((old) => ({ ...old, name: '', description: '', code: '', category: '', subcategory: '', price: '', preparation: '', report_hours: '24' })); setModal('item'); } })}
+          <Pressable onPress={() => { setBulkRows([]); setBulkFileName(''); setBulkResult(''); setModal('bulk'); }} style={s.outlinedButton}><Text style={s.outlinedButtonText}>Import lab tests · Excel / CSV</Text></Pressable>
+          {labTests.map((test) => <View key={test.id} style={s.cardFrame}><Text style={s.cardItemTitle}>{test.category || 'Other tests'}{test.subcategory ? ` · ${test.subcategory}` : ''} · {test.name}</Text><Text style={s.cardDetailText}>₹{Number(test.discount_price || test.price || 0).toFixed(2)} · {test.code || 'No test code'}</Text></View>)}
         </>
       )}
 
@@ -1297,7 +1355,7 @@ export function PartnerApp() {
                 </Pressable>
                 <Pressable
                   onPress={() => {
-                    setItemForm({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '', requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true, code: '', preparation: '', report_hours: '24' });
+                    setItemForm({ name: '', description: '', unit: 'strip', stock: '0', price: '', discount_price: '', sku: '', medicine_type: 'otc', schedule_tag: '', max_qty_per_order: '', max_qty_per_month: '', requires_pharmacist_review: false, requires_age_confirmation: false, allows_substitution: true, code: '', category: '', subcategory: '', preparation: '', report_hours: '24' });
                     setItemImageUri(null);
                     setItemImageBase64(null);
                     setModal('item');
@@ -1416,7 +1474,7 @@ export function PartnerApp() {
     </ScrollView>
   );
 
-  const activeContent = useMemo(() => {
+  const activeContent = (() => {
     switch (tab) {
       case 'Dashboard': return dashboardScreen();
       case 'Patients': return patientsScreen();
@@ -1425,7 +1483,7 @@ export function PartnerApp() {
       case 'Account': return accountScreen();
       default: return dashboardScreen();
     }
-  }, [tab, workspace, provider, conversation, messages, draft, reportUrl, products, labTests, orders, patients, tasks, analytics, notice, role, refreshing, appearance, itemForm, itemImageUri, s]);
+  })();
 
     const renderModalContent = () => {
     if (modal === 'profile') {
@@ -1497,18 +1555,22 @@ export function PartnerApp() {
     if (modal === 'item') {
       return (
         <View style={s.addMedicineModalContainer}>
-          <Text style={s.addMedicineTitle}>Add medicine</Text>
+          <Text style={s.addMedicineTitle}>{role === 'lab' ? 'Add lab test or diagnostic service' : 'Add medicine'}</Text>
+          {role === 'lab' ? <Text style={{ color: C.muted, fontSize: 12, marginBottom: 10 }}>Lab tests include blood, urine and pathology investigations. Use Diagnostics for imaging and other evaluations.</Text> : null}
 
           {/* Description / Name Field */}
           <View style={s.inputContainer}>
             <TextInput
               value={itemForm.name || itemForm.description}
               onChangeText={(text) => setItemForm((prev) => ({ ...prev, name: text, description: text }))}
-              placeholder="Description"
+              placeholder={role === 'lab' ? 'Test name' : 'Medicine name'}
               placeholderTextColor={C.placeholder}
               style={s.formInput}
             />
           </View>
+
+          {role === 'lab' && <View style={s.inputContainer}><TextInput value={itemForm.category} onChangeText={(text) => setItemForm((prev) => ({ ...prev, category: text }))} placeholder="Category (Blood Tests, Urine, Pathology, Xray, CT...)" placeholderTextColor={C.placeholder} style={s.formInput} /></View>}
+          {role === 'lab' && <View style={s.inputContainer}><TextInput value={itemForm.subcategory} onChangeText={(text) => setItemForm((prev) => ({ ...prev, subcategory: text }))} placeholder="Subcategory (e.g. CBC, Urine Routine, Chest)" placeholderTextColor={C.placeholder} style={s.formInput} /></View>}
 
           {/* Unit / pack and Stock Row */}
           <View style={s.formRowTwoCol}>
@@ -1674,16 +1736,61 @@ export function PartnerApp() {
             <Text style={s.cardDetailText}>Customer: {itm.customer_name || 'Patient'}</Text>
             <Text style={s.cardDetailText}>Scheduled: {itm.scheduled_at || itm.created_at || '-'}</Text>
             <Text style={s.cardDetailText}>Address: {itm.address || itm.customer_address || '-'}</Text>
-            {!isLab && (
+            {!isLab && role !== 'doctor' && (
               <Text style={[s.cardDetailText, { fontWeight: '700', color: C.teal }]}>
                 Delivery Timing: {itm.delivery_slot || (itm.delivery_type === 'express' ? '30-60 mins Express' : itm.delivery_type === 'same_day' ? 'Same day delivery' : itm.delivery_type === 'next_day' ? 'Next day delivery' : '30-60 mint delivery express')}
               </Text>
             )}
             {Boolean(itm.order_amount) && <Text style={[s.cardDetailText, { fontWeight: '800', fontSize: 14 }]}>Total Amount: {fmtMoney(itm.order_amount)}</Text>}
           </View>
+          {role === 'doctor' && (
+            <View style={{ gap: 9, marginBottom: 12 }}>
+              <Text style={s.floatingInputLabel}>Zoom / online meeting link</Text>
+              <TextInput
+                value={meetingUrlDraft}
+                onChangeText={setMeetingUrlDraft}
+                placeholder="https://zoom.us/j/..."
+                autoCapitalize="none"
+                keyboardType="url"
+                style={s.formInput}
+              />
+              <Text style={s.formHelpText}>Save this link to show a Join online button in the customer app.</Text>
+              <Pressable disabled={busy} onPress={() => void saveConsultationMeetingLink()} style={[s.submitMedicineButton, busy && { opacity: 0.6 }]}>
+                <Text style={s.submitMedicineButtonText}>{busy ? 'Saving...' : 'Save meeting link'}</Text>
+              </Pressable>
+              <Pressable onPress={() => void openConsultationChat(itm)} style={s.outlinedButton}>
+                <Text style={s.outlinedButtonText}>Chat with patient</Text>
+              </Pressable>
+            </View>
+          )}
           <Pressable onPress={() => setModal(null)} style={s.submitMedicineButton}>
             <Text style={s.submitMedicineButtonText}>Close details</Text>
           </Pressable>
+        </View>
+      );
+    }
+
+    if (modal === 'prescription' && prescriptionTask) {
+      return (
+        <View style={s.modalInnerPad}>
+          <Text style={s.addMedicineTitle}>Write patient prescription</Text>
+          <Text style={s.formHelpText}>Enter one medicine per line: name | strength | dosage | frequency | duration | instructions.</Text>
+          <TextInput
+            value={prescriptionDraft}
+            onChangeText={setPrescriptionDraft}
+            placeholder={'Paracetamol | 500 mg | 1 tablet | twice daily | 3 days | after food'}
+            multiline
+            autoCapitalize="sentences"
+            style={[s.formInput, { minHeight: 120, textAlignVertical: 'top' }]}
+          />
+          <View style={s.modalFooterRow}>
+            <Pressable onPress={() => { setPrescriptionTask(null); setPrescriptionDraft(''); setModal(null); }} style={s.cancelTextButton}>
+              <Text style={s.cancelTextButtonLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable disabled={busy || !prescriptionDraft.trim()} onPress={() => void saveConsultationPrescription()} style={[s.submitMedicineButton, { opacity: busy || !prescriptionDraft.trim() ? 0.55 : 1 }]}>
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.submitMedicineButtonText}>Save prescription</Text>}
+            </Pressable>
+          </View>
         </View>
       );
     }
@@ -1723,6 +1830,18 @@ export function PartnerApp() {
           <Pressable disabled={locationBusy} onPress={() => void searchLocations()} style={s.solidTealButton}>
             <Text style={s.solidTealButtonText}>{locationBusy ? 'Searching...' : 'Search'}</Text>
           </Pressable>
+          {locationChoices.map((choice, index) => (
+            <Pressable key={`${choice.latitude}-${choice.longitude}-${index}`} onPress={() => {
+              setSelectedLocation(choice);
+              setMapPin({ latitude: choice.latitude, longitude: choice.longitude });
+              setLocationQuery(choice.address);
+              setLocationNotice('Address selected. Confirm it on the map, then add this location.');
+              setLocationChoices([]);
+            }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border }}>
+              <Text style={{ color: C.teal, fontSize: 18 }}>⌖</Text>
+              <Text style={[s.cardDetailText, { flex: 1 }]}>{choice.address}</Text>
+            </Pressable>
+          ))}
           <LocationMap center={center} selected={mapPin} onSelect={selectLocationPin} />
           {locationNotice ? <Text style={{ color: C.warning, marginVertical: 4 }}>{locationNotice}</Text> : null}
           <Pressable disabled={!selectedLocation || locationBusy} onPress={() => void applySelectedLocation()} style={s.submitMedicineButton}>
@@ -1735,9 +1854,9 @@ export function PartnerApp() {
     if (modal === 'bulk') {
       return (
         <View style={s.addMedicineModalContainer}>
-          <Text style={s.addMedicineTitle}>Bulk import products</Text>
+          <Text style={s.addMedicineTitle}>{role === 'lab' ? 'Bulk import diagnostic tests' : 'Bulk import products'}</Text>
           <Text style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>
-            Download the template, fill one product per row (images as URLs), then upload and import.
+            {role === 'lab' ? 'Add blood, urine or pathology investigations as lab tests; use Xray, CT, MRI, USG or ECG for diagnostic services. Fill category and subcategory for each row.' : 'Download the template, fill one product per row (images as URLs), then upload and import.'}
           </Text>
 
           <View style={{ gap: 10 }}>
@@ -1756,7 +1875,7 @@ export function PartnerApp() {
             {bulkRows.length ? (
               <View style={{ backgroundColor: C.bgAlt, borderRadius: 10, padding: 10, marginTop: 4 }}>
                 <Text style={{ color: C.bodyText, fontSize: 13, fontWeight: '600' }}>
-                  {bulkRows.length} product row(s) loaded
+                  {bulkRows.length} {role === 'lab' ? 'test' : 'product'} row(s) loaded
                 </Text>
               </View>
             ) : null}
@@ -2018,6 +2137,8 @@ const makeStyles = (C: Palette) => StyleSheet.create({
   },
   cardItemTitle: {
     fontSize: 18,
+    lineHeight: 24,
+    includeFontPadding: false,
     fontWeight: '800',
     color: C.ink,
   },
@@ -2030,6 +2151,8 @@ const makeStyles = (C: Palette) => StyleSheet.create({
   },
   statusPillBadgeText: {
     fontSize: 13,
+    lineHeight: 18,
+    includeFontPadding: false,
     color: C.bodyText,
     fontWeight: '600',
   },
@@ -2041,6 +2164,7 @@ const makeStyles = (C: Palette) => StyleSheet.create({
     fontSize: 13,
     color: C.bodyTextAlt,
     lineHeight: 18,
+    includeFontPadding: false,
   },
   cardActionsRow: {
     flexDirection: 'row',
@@ -2681,6 +2805,8 @@ const makeStyles = (C: Palette) => StyleSheet.create({
   },
   acctCatalogTitle: {
     fontSize: 20,
+    lineHeight: 26,
+    includeFontPadding: false,
     fontWeight: '800',
     color: C.ink,
   },

@@ -7,6 +7,7 @@ export function LocationMap({ center, selected, onSelect }: LocationMapProps) {
   return (
     <View style={s.frame}>
       <MapView
+        key={`${focus.latitude}:${focus.longitude}`}
         style={s.map}
         initialRegion={{ ...focus, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
         onPress={({ nativeEvent }) => onSelect(nativeEvent.coordinate)}

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AIMEDIX MEDS PATNER",
+    "name": "AIMEDIX MEDS PARTNER",
     "slug": "aimedix-partner",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -29,8 +29,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFFFF",
-          "image": "./assets/appicon.png",
-          "imageWidth": 220,
+          "image": "./assets/appicon-splash.png",
+          "imageWidth": 100,
           "resizeMode": "contain"
         }
       ],

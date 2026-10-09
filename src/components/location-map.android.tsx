@@ -7,6 +7,7 @@ export function LocationMap({ center, selected, onSelect }: LocationMapProps) {
   return (
     <View style={s.frame}>
       <MapView
+        key={`${focus.latitude}:${focus.longitude}`}
         style={s.map}
         provider={PROVIDER_GOOGLE}
         initialRegion={{ ...focus, latitudeDelta: 0.08, longitudeDelta: 0.08 }}

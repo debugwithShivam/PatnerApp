@@ -25,7 +25,8 @@ async function read(key: string) {
 async function write(key: string, value: string | null) {
   if (Platform.OS === 'web') {
     if (typeof localStorage === 'undefined') return;
-    value ? localStorage.setItem(key, value) : localStorage.removeItem(key);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
   } else if (value) await SecureStore.setItemAsync(key, value);
   else await SecureStore.deleteItemAsync(key);
 }
