@@ -3,11 +3,11 @@ import * as SecureStore from 'expo-secure-store';
 
 // Public API origin fallback: EAS remote builds do not receive a developer's
 // untracked .env.local file. EXPO_PUBLIC_API_BASE_URL still overrides this.
-const FALLBACK_BASE_URL = 'https://aimedixmeds.com';
+const FALLBACK_BASE_URL = 'https://darkgoldenrod-ibex-216110.hostingersite.com';
 const environmentBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 // Older preview builds carried a temporary Hostinger URL. Do not let a stale
 // EAS Preview variable send the released partner app back to that backend.
-const CONFIGURED_BASE_URL = !environmentBaseUrl || environmentBaseUrl.includes('lightgoldenrodyellow-okapi-349601.hostingersite.com')
+const CONFIGURED_BASE_URL = !environmentBaseUrl || /aimedixmeds\.com|aimedix\.in|lightgoldenrodyellow-okapi-349601\.hostingersite\.com/i.test(environmentBaseUrl)
   ? FALLBACK_BASE_URL
   : environmentBaseUrl;
 // The Android emulator reaches the host machine through 10.0.2.2, not localhost.

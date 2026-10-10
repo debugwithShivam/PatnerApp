@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Location from 'expo-location';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { SymbolView } from 'expo-symbols';
@@ -340,11 +341,35 @@ export function PartnerApp() {
     setLocationNotice('Pin selected. Add this location to your premises.');
   };
 
+  const detectCurrentLocation = async () => {
+    setLocationBusy(true);
+    setLocationNotice('Finding your current location…');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setLocationNotice('Location permission is off. Allow it in your phone settings, or search for an address manually.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const pin: LocationPin = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+      const choice: LocationChoice = { ...pin, address: `${pin.latitude.toFixed(5)}, ${pin.longitude.toFixed(5)}` };
+      setMapPin(pin);
+      setSelectedLocation(choice);
+      setLocationQuery(choice.address);
+      setLocationNotice('Current location detected. Confirm it to check service coverage.');
+    } catch (error) {
+      setLocationNotice(error instanceof Error ? error.message : 'Could not detect your location. Search for an address or place a map pin.');
+    } finally {
+      setLocationBusy(false);
+    }
+  };
+
   const openLocationPicker = () => {
     setLocationQuery(selectedLocation?.address || registerForm.address_line || '');
     setLocationChoices([]);
     setLocationNotice('');
     setModal('location');
+    void detectCurrentLocation();
   };
 
   const applySelectedLocation = async () => {
@@ -895,29 +920,39 @@ export function PartnerApp() {
 
   // Stat metric cards row (Image 2)
   const metricCardsRow = () => {
-    const completedCount = analytics.completed_tasks ?? tasks.filter((t) => t.status === 'completed').length;
-    const paidRevenue = analytics.revenue ?? 0;
+    const pharmacyStatuses = orders.map((order) => String(order.order_status ?? '').toLowerCase());
+    const completedCount = role === 'pharmacy'
+      ? pharmacyStatuses.filter((status) => ['completed', 'delivered'].includes(status)).length
+      : analytics.completed_tasks ?? tasks.filter((task) => task.status === 'completed').length;
+    const paidRevenue = role === 'pharmacy'
+      ? orders.reduce((total, order) => ['paid', 'verified'].includes(String(order.payment_status ?? '').toLowerCase()) ? total + Number(order.order_amount ?? 0) : total, 0)
+      : analytics.revenue ?? 0;
+    const metrics = role === 'pharmacy'
+      ? [
+          { label: 'Total', value: String(orders.length), icon: 'total' as IconName },
+          { label: 'Pending', value: String(pharmacyStatuses.filter((status) => !['completed', 'delivered', 'cancelled'].includes(status)).length), icon: 'pending' as IconName },
+          { label: 'Completed', value: String(completedCount), icon: 'completed' as IconName },
+          { label: 'Paid revenue', value: fmtMoney(paidRevenue), icon: 'revenue' as IconName },
+        ]
+      : [
+          { label: 'Completed', value: String(completedCount), icon: 'completed' as IconName },
+          { label: 'Paid revenue', value: fmtMoney(paidRevenue), icon: 'revenue' as IconName },
+        ];
     return (
-      <View style={s.metricCardsRow}>
-        <View style={s.metricCard}>
-          <View style={s.metricIconBadge}>
-            <SymbolView name={{ ios: 'checkmark', android: 'check', web: 'check' }} size={16} tintColor={C.teal} fallback={<Text style={{ color: C.teal, fontWeight: '900' }}>✓</Text>} />
+      <View style={[s.metricCardsRow, role === 'pharmacy' && s.metricCardsGrid]}>
+        {metrics.map((metric) => (
+          <View key={metric.label} style={[s.metricCard, role === 'pharmacy' && s.metricCardGridItem]}>
+            <View style={s.metricIconBadge}>
+              {metric.icon === 'revenue'
+                ? <Text style={{ color: C.teal, fontSize: 18, fontWeight: '800' }}>₹</Text>
+                : <SymbolView name={{ ios: metric.icon === 'pending' ? 'clock' : metric.icon === 'total' ? 'doc.text' : 'checkmark', android: metric.icon === 'pending' ? 'schedule' : metric.icon === 'total' ? 'assignment' : 'check', web: metric.icon === 'pending' ? 'schedule' : metric.icon === 'total' ? 'assignment' : 'check' }} size={16} tintColor={C.teal} fallback={<Text style={{ color: C.teal, fontWeight: '900' }}>{metric.icon === 'pending' ? '◷' : metric.icon === 'total' ? '▤' : '✓'}</Text>} />}
+            </View>
+            <View style={s.metricTextStack}>
+              <Text style={s.metricValue}>{metric.value}</Text>
+              <Text style={s.metricLabel}>{metric.label}</Text>
+            </View>
           </View>
-          <View style={s.metricTextStack}>
-            <Text style={s.metricValue}>{String(completedCount)}</Text>
-            <Text style={s.metricLabel}>Completed</Text>
-          </View>
-        </View>
-
-        <View style={s.metricCard}>
-          <View style={s.metricIconBadge}>
-            <Text style={{ color: C.teal, fontSize: 18, fontWeight: '800' }}>₹</Text>
-          </View>
-          <View style={s.metricTextStack}>
-            <Text style={s.metricValue}>{fmtMoney(paidRevenue)}</Text>
-            <Text style={s.metricLabel}>Paid revenue</Text>
-          </View>
-        </View>
+        ))}
       </View>
     );
   };
@@ -1827,6 +1862,9 @@ export function PartnerApp() {
         <View style={s.modalInnerPad}>
           <Text style={s.addMedicineTitle}>Pick facility location</Text>
           <TextInput value={locationQuery} onChangeText={setLocationQuery} onSubmitEditing={() => void searchLocations()} placeholder="Search address or landmark" style={s.formInput} />
+          <Pressable disabled={locationBusy} onPress={() => void detectCurrentLocation()} style={s.solidTealButton}>
+            <Text style={s.solidTealButtonText}>{locationBusy ? 'Finding current location…' : 'Use current location'}</Text>
+          </Pressable>
           <Pressable disabled={locationBusy} onPress={() => void searchLocations()} style={s.solidTealButton}>
             <Text style={s.solidTealButtonText}>{locationBusy ? 'Searching...' : 'Search'}</Text>
           </Pressable>
@@ -1885,18 +1923,6 @@ export function PartnerApp() {
             ) : null}
           </View>
 
-          <View style={s.modalFooterRow}>
-            <Pressable onPress={() => { setBulkRows([]); setBulkFileName(''); setBulkResult(''); setModal(null); }} style={s.cancelTextButton}>
-              <Text style={s.cancelTextButtonLabel}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              disabled={bulkBusy || !bulkRows.length}
-              onPress={() => void submitBulkImport()}
-              style={[s.submitMedicineButton, { opacity: bulkBusy || !bulkRows.length ? 0.5 : 1 }]}
-            >
-              {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.submitMedicineButtonText}>Import all</Text>}
-            </Pressable>
-          </View>
         </View>
       );
     }
@@ -1930,8 +1956,9 @@ export function PartnerApp() {
           <View style={s.mainBody}>{activeContent}</View>
 
           {/* Bottom Navigation Bar matching Screenshot 2 */}
-          <View style={[s.bottomNavBar, { paddingBottom: Math.max(safeAreaInsets.bottom, 8) }]}>
-            {tabs.map((item) => {
+          <View style={s.bottomNavDock}>
+            <View style={s.bottomNavBar}>
+              {tabs.map((item) => {
               const isActive = tab === item.title;
               return (
                 <Pressable
@@ -1950,7 +1977,9 @@ export function PartnerApp() {
                   <Text style={[s.bottomNavLabel, isActive && s.bottomNavActiveLabel]}>{item.title}</Text>
                 </Pressable>
               );
-            })}
+              })}
+            </View>
+            <View style={{ height: safeAreaInsets.bottom }} />
           </View>
         </>
       )}
@@ -1958,12 +1987,26 @@ export function PartnerApp() {
       {/* Modal Dialog / Sheet */}
       <Modal transparent visible={modal !== null} animationType="slide" onRequestClose={() => setModal(null)}>
         <Pressable style={s.modalOverlay} onPress={() => setModal(null)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.modalKeyboardDock}>
-            <Pressable style={s.modalSheetCard} onPress={(e) => e.stopPropagation()}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[s.modalKeyboardDock, modal === 'bulk' ? { flex: 1, justifyContent: 'flex-end' } : undefined]}>
+            <Pressable style={[s.modalSheetCard, modal === 'bulk' ? { height: '90%' } : undefined]} onPress={(e) => e.stopPropagation()}>
               <View style={s.modalSheetHandle} />
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <ScrollView style={modal === 'bulk' ? { flex: 1, flexShrink: 1, minHeight: 0 } : undefined} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                 {renderModalContent()}
               </ScrollView>
+              {modal === 'bulk' ? (
+                <View style={s.modalFooterRow}>
+                  <Pressable onPress={() => { setBulkRows([]); setBulkFileName(''); setBulkResult(''); setModal(null); }} style={s.cancelTextButton}>
+                    <Text style={s.cancelTextButtonLabel}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={bulkBusy || !bulkRows.length}
+                    onPress={() => void submitBulkImport()}
+                    style={[s.submitMedicineButton, { opacity: bulkBusy || !bulkRows.length ? 0.5 : 1 }]}
+                  >
+                    {bulkBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.submitMedicineButtonText}>Import all</Text>}
+                  </Pressable>
+                </View>
+              ) : null}
             </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -2059,6 +2102,16 @@ const makeStyles = (C: Palette) => StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginBottom: 16,
+  },
+  metricCardsGrid: {
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  metricCardGridItem: {
+    flex: 0,
+    width: '48%',
+    minHeight: 96,
+    marginBottom: 12,
   },
   metricCard: {
     flex: 1,
@@ -2231,7 +2284,10 @@ const makeStyles = (C: Palette) => StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Bottom Navigation Bar (Image 2)
+  // Keep the tab bar above the system navigation area, which varies by device.
+  bottomNavDock: {
+    backgroundColor: C.surface,
+  },
   bottomNavBar: {
     height: 64,
     backgroundColor: C.surface,

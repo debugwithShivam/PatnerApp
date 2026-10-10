@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AIMEDIX MEDS PARTNER",
+    "name": "AIMEDIX PARTNER",
     "slug": "aimedix-partner",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -25,6 +25,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow AIMEDIX PARTNER to use your location to set your facility location."
+        }
+      ],
       [
         "expo-splash-screen",
         {

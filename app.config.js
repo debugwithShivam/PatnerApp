@@ -11,7 +11,8 @@ module.exports = ({ config }) => {
     }
   }
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!mapsKey) {
+  const isExpoStart = process.argv.some((arg) => arg === 'start');
+  if (!mapsKey && !isExpoStart) {
     throw new Error(
       'GOOGLE_MAPS_API_KEY is required to build the Android app. Set it in the build environment or PatnerApp/.env.local.'
     );
